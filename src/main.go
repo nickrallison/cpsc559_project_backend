@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+const (
+	CONNHOST = "localhost"
+	CONNPORT = "7999"
+	CONNTYPE = "tcp"
+)
+
 type Message struct {
 	ID   int    `json:"id"`
 	Data string `json:"data"`
