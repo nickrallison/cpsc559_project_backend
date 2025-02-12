@@ -22,6 +22,7 @@ func InitDB(dbPath string) (error, *sql.DB) {
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
+            unixmillis INTEGER DEFAULT (strftime('%s', 'now')),
             data TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -49,29 +50,29 @@ func ClearDB(dbPath string) error {
 	return nil
 }
 
-func InsertMessage(DB *sql.DB, data string, userId int) (int, error) {
+func InsertMessage(DB *sql.DB, data string, userId int, unixmillis int64) (int, error) {
 	ctx := context.Background()
 	_, err := DB.ExecContext(ctx,
-		"INSERT INTO messages (user_id, data) VALUES (?, ?)",
-		userId, data)
+		"INSERT INTO messages (user_id, data, unixmillis) VALUES (?, ?, ?)",
+		userId, data, unixmillis)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert message: %v", err)
 	}
 	return 1, nil
 }
 
-func GetMessages(DB *sql.DB, userId int) ([]Message, error) {
+func GetMessages(DB *sql.DB, userId int) ([]StoredData, error) {
 	ctx := context.Background()
-	rows, err := DB.QueryContext(ctx, "SELECT id, data FROM messages WHERE user_id = ?", userId)
+	rows, err := DB.QueryContext(ctx, "SELECT user_id, data, unixmillis FROM messages WHERE user_id = ?", userId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query messages: %v", err)
 	}
 	defer rows.Close()
 
-	msgs := []Message{}
+	msgs := []StoredData{}
 	for rows.Next() {
-		var msg Message
-		if err := rows.Scan(&msg.ID, &msg.Data); err != nil {
+		var msg StoredData
+		if err := rows.Scan(&msg.UserId, &msg.Data, &msg.UnixMillis); err != nil {
 			return nil, fmt.Errorf("failed to scan message: %v", err)
 		}
 		msgs = append(msgs, msg)

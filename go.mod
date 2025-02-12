@@ -1,4 +1,4 @@
-module github.com/nickrallison/cpsc559_project
+module cpsc559
 
 go 1.21
 
