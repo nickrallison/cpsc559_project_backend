@@ -2,10 +2,9 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"flag"
 	"log"
-	"strconv"
+	"net/http"
 	"time"
 )
 
@@ -13,6 +12,8 @@ const (
 	CONNHOST = "localhost"
 	CONNPORT = "7999"
 	CONNTYPE = "tcp"
+	HTTPHOST = "localhost"
+	HTTPPORT = "8080"
 )
 
 type StoredData struct {
@@ -37,37 +38,11 @@ func main() {
 		log.Fatalf("InitDB error: %v", err)
 	}
 
-	var unixTime int64
-	unixTime = time.Now().Unix()
+	// Initialize the HTTP server
+	initialize_http_server(DB)
 
-	messageText := "Hello, testing!"
-	messageJson := `{"time":` + strconv.FormatInt(unixTime, 10) + `,"message":"` + messageText + `"}`
-
-	userId := 1
-	var unixmillis = makeTimestamp()
-	if _, err := InsertMessage(DB, messageJson, userId, unixmillis); err != nil {
-		log.Fatalf("InsertMessage failed: %v", err)
-	}
-
-	// Get messages
-
-	messages, err := GetMessages(DB, userId)
-	if err != nil {
-		log.Fatalf("GetMessages failed: %v", err)
-	}
-	println("Messages:")
-	for _, m := range messages {
-
-		var data map[string]interface{}
-		var time int64
-		var message string
-		if err := json.Unmarshal([]byte(m.Data), &data); err != nil {
-			log.Fatalf("json.Unmarshal failed: %v", err)
-		}
-		time = m.UnixMillis
-		message = data["message"].(string)
-		println("ID:", m.UserId, "Time:", time, "Message:", message)
-	}
+	log.Printf("Server starting on %s:%s", HTTPHOST, HTTPPORT)
+	log.Fatal(http.ListenAndServe(HTTPHOST+":"+HTTPPORT, nil))
 
 }
 
