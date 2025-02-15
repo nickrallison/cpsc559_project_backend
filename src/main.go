@@ -9,22 +9,26 @@ import (
 	"time"
 )
 
-type Message struct {
-	ID   int    `json:"id"`
-	Data string `json:"data"`
+const (
+	CONNHOST = "localhost"
+	CONNPORT = "7999"
+	CONNTYPE = "tcp"
+)
+
+type StoredData struct {
+	UnixMillis int64  `json:"id"`
+	UserId     int    `json:"user_id"`
+	Data       string `json:"data"`
 }
 
 func main() {
 
-	dbPath := flag.String("db", "file:messages.db", "libsql database file path")
+	dbPath := flag.String("db", "file:data.db", "libsql database file path")
 	ip := flag.String("ip", "", "IP addresses of other instances")
-	port := flag.String("port", "7777", "Port number")
-
 	flag.Parse()
 
 	println("dbPath:", *dbPath)
 	println("ip:", *ip)
-	println("port:", *port)
 
 	var DB *sql.DB
 	err, DB := InitDB(*dbPath)
@@ -40,7 +44,8 @@ func main() {
 	messageJson := `{"time":` + strconv.FormatInt(unixTime, 10) + `,"message":"` + messageText + `"}`
 
 	userId := 1
-	if _, err := InsertMessage(DB, messageJson, userId); err != nil {
+	var unixmillis = makeTimestamp()
+	if _, err := InsertMessage(DB, messageJson, userId, unixmillis); err != nil {
 		log.Fatalf("InsertMessage failed: %v", err)
 	}
 
@@ -59,9 +64,13 @@ func main() {
 		if err := json.Unmarshal([]byte(m.Data), &data); err != nil {
 			log.Fatalf("json.Unmarshal failed: %v", err)
 		}
-		time = int64(data["time"].(float64))
+		time = m.UnixMillis
 		message = data["message"].(string)
-		println("ID:", m.ID, "Time:", time, "Message:", message)
+		println("ID:", m.UserId, "Time:", time, "Message:", message)
 	}
 
+}
+
+func makeTimestamp() int64 {
+	return time.Now().UnixNano() / 1e6
 }
