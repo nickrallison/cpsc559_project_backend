@@ -15,9 +15,10 @@ func TestInitAndClearDB(t *testing.T) {
 		t.Fatalf("InitDB error: %v", err)
 	}
 
+	unixMillis := makeTimestamp()
 	messageText := "Hello, testing!"
 	userId := 1
-	if _, err := InsertMessage(DB, messageText, userId); err != nil {
+	if _, err := InsertMessage(DB, messageText, userId, unixMillis); err != nil {
 		t.Fatalf("InsertMessage failed: %v", err)
 	}
 
@@ -72,13 +73,16 @@ func TestMultipleMessages(t *testing.T) {
 	messagesUser1 := []string{"First message", "Second message", "Third message"}
 	messagesUser2 := []string{"User2 only message"}
 
+	unixMillis1 := makeTimestamp()
+	unixMillis2 := makeTimestamp()
+
 	for _, msg := range messagesUser1 {
-		if _, err := InsertMessage(DB, msg, userId1); err != nil {
+		if _, err := InsertMessage(DB, msg, userId1, unixMillis1); err != nil {
 			t.Fatalf("failed to insert message for user 1: %v", err)
 		}
 	}
 	for _, msg := range messagesUser2 {
-		if _, err := InsertMessage(DB, msg, userId2); err != nil {
+		if _, err := InsertMessage(DB, msg, userId2, unixMillis2); err != nil {
 			t.Fatalf("failed to insert message for user 2: %v", err)
 		}
 	}
