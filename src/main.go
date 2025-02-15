@@ -17,7 +17,14 @@ type Message struct {
 func main() {
 
 	dbPath := flag.String("db", "file:messages.db", "libsql database file path")
+	ip := flag.String("ip", "", "IP addresses of other instances")
+	port := flag.String("port", "7777", "Port number")
+
 	flag.Parse()
+
+	println("dbPath:", *dbPath)
+	println("ip:", *ip)
+	println("port:", *port)
 
 	var DB *sql.DB
 	err, DB := InitDB(*dbPath)
