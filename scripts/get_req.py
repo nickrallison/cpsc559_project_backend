@@ -3,6 +3,9 @@ import json
 
 def main():
 
-    url = 'localhost:8080/messages'
-    # Make a GET request to get all messages
+    url = 'http://localhost:8080/messages'
     response = requests.get(url)
+    print(response.json())
+
+if __name__ == '__main__':
+    main()
