@@ -9,5 +9,5 @@ go run ./src
 ## Test
 
 ```sh
-go test ./src
+go test ./... -v
 ```
