@@ -21,17 +21,17 @@ class StoredObject:
 def main():
     userId = 1
     url = f'http://localhost:8080/objects?userId={userId}'
-    response = requests.get(url).json()
 
-    if len(response) == 0:
-        print('No objects found, creating some test objects:')
-        for i in range(3):
-                for j in range(3):
-                    obj = StoredObject(i, j, f'data-{i}-{j}')
-                    response = requests.post(url, json=obj.__dict__())
-                    print(f"Created object: {obj.__dict__()}")
-    else:
-        print('Objects found:')
+
+    objects = []
+    for i in range(3):
+            for j in range(3):
+                obj = StoredObject(i, j, f'data-{i}-{j}')
+                objects.append(obj)
+                print(f"Created object: {obj.__dict__()}")
+
+    requests.post('http://localhost:8080/objects', json=[obj.__dict__() for obj in objects])
+    response = requests.get(url).json()
 
     for obj in response:
         print(obj)
