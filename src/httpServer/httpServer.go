@@ -38,7 +38,7 @@ func Initialize_http_server(DB *sql.DB) {
 
 	postObjectHandler := func(w http.ResponseWriter, r *http.Request) {
 
-		var object database.StoredData
+		var object database.StoredObject
 		err := json.NewDecoder(r.Body).Decode(&object)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -74,7 +74,7 @@ func Initialize_http_server(DB *sql.DB) {
 	}
 
 	putObjectHandler := func(w http.ResponseWriter, r *http.Request) {
-		var object database.StoredData
+		var object database.StoredObject
 		err := json.NewDecoder(r.Body).Decode(&object)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

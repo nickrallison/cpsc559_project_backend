@@ -9,7 +9,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type StoredData struct {
+type StoredObject struct {
 	ID         int    `json:"id"` // primary key
 	UnixMillis int64  `json:"unix_millis"`
 	UserId     int    `json:"user_id"`
@@ -68,7 +68,7 @@ func InsertObject(DB *sql.DB, data string, userId int, unixmillis int64) (int, e
 	return 1, nil
 }
 
-func GetObjects(DB *sql.DB, userId int) ([]StoredData, error) {
+func GetObjects(DB *sql.DB, userId int) ([]StoredObject, error) {
 	ctx := context.Background()
 	rows, err := DB.QueryContext(ctx, "SELECT user_id, data, unixmillis FROM objects WHERE user_id = ?", userId)
 	if err != nil {
@@ -76,9 +76,9 @@ func GetObjects(DB *sql.DB, userId int) ([]StoredData, error) {
 	}
 	defer rows.Close()
 
-	msgs := []StoredData{}
+	msgs := []StoredObject{}
 	for rows.Next() {
-		var msg StoredData
+		var msg StoredObject
 		if err := rows.Scan(&msg.UserId, &msg.Data, &msg.UnixMillis); err != nil {
 			return nil, fmt.Errorf("failed to scan object: %v", err)
 		}

@@ -44,7 +44,7 @@ func setupTestHttpServer(t *testing.T) (*httptest.Server, *sql.DB) {
 func TestPostObject(t *testing.T) {
 	ts, _ := setupTestHttpServer(t)
 
-	postObject := database.StoredData{
+	postObject := database.StoredObject{
 		UserId:     1,
 		Data:       "Hello from POST",
 		UnixMillis: util.MakeTimestamp(),
@@ -67,7 +67,7 @@ func TestPostObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /objects request failed: %v", err)
 	}
-	var objects []database.StoredData
+	var objects []database.StoredObject
 	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response: %v", err)
@@ -96,7 +96,7 @@ func TestGetObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /objects request failed: %v", err)
 	}
-	var objects []database.StoredData
+	var objects []database.StoredObject
 	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response: %v", err)
@@ -121,7 +121,7 @@ func TestPutObject(t *testing.T) {
 		t.Fatalf("InsertObject failed: %v", err)
 	}
 
-	updateObject := database.StoredData{
+	updateObject := database.StoredObject{
 		ID:         1,
 		UserId:     userId,
 		Data:       "Updated via PUT",
@@ -147,7 +147,7 @@ func TestPutObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /objects request failed after PUT: %v", err)
 	}
-	var objects []database.StoredData
+	var objects []database.StoredObject
 	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response after PUT: %v", err)
@@ -175,7 +175,7 @@ func TestDeleteObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /objects request failed: %v", err)
 	}
-	var objects []database.StoredData
+	var objects []database.StoredObject
 	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response: %v", err)
