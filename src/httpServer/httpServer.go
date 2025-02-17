@@ -23,9 +23,16 @@ func newRoute(path string, handler func(w http.ResponseWriter, r *http.Request))
 func Initialize_http_server(DB *sql.DB) {
 
 	getObjectsHandler := func(w http.ResponseWriter, r *http.Request) {
-
-		userId := 1
-
+		userIdParam := r.URL.Query().Get("userId")
+		if userIdParam == "" {
+			http.Error(w, "missing userId parameter", http.StatusBadRequest)
+			return
+		}
+		userId, err := strconv.Atoi(userIdParam)
+		if err != nil {
+			http.Error(w, "invalid userId parameter", http.StatusBadRequest)
+			return
+		}
 		// Get objects
 		objects, err := database.GetObjects(DB, userId)
 		if err != nil {

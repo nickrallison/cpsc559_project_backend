@@ -14,35 +14,27 @@ import (
 
 func setupTestHttpServer(t *testing.T) (*httptest.Server, *sql.DB) {
 	t.Helper()
-
 	mux := http.NewServeMux()
 	origMux := http.DefaultServeMux
 	http.DefaultServeMux = mux
-
 	tempDir := t.TempDir()
 	dbPath := "file:" + filepath.Join(tempDir, "http_server_test.db")
-
 	err, DB := database.InitDB(dbPath)
 	if err != nil {
 		t.Fatalf("InitDB error: %v", err)
 	}
-
 	Initialize_http_server(DB)
-
 	ts := httptest.NewServer(mux)
-
 	t.Cleanup(func() {
 		ts.Close()
 		DB.Close()
 		http.DefaultServeMux = origMux
 	})
-
 	return ts, DB
 }
 
 func TestPostObject(t *testing.T) {
 	ts, _ := setupTestHttpServer(t)
-
 	postObject := database.StoredObject{
 		UserId:        1,
 		UserMessageID: 1,
@@ -52,7 +44,6 @@ func TestPostObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to marshal post object: %v", err)
 	}
-
 	resp, err := http.Post(ts.URL+"/objects", "application/json", bytes.NewBuffer(postBytes))
 	if err != nil {
 		t.Fatalf("POST /objects request failed: %v", err)
@@ -62,7 +53,7 @@ func TestPostObject(t *testing.T) {
 		t.Errorf("expected status OK; got %s", resp.Status)
 	}
 
-	resp, err = http.Get(ts.URL + "/objects")
+	resp, err = http.Get(ts.URL + "/objects?userId=1")
 	if err != nil {
 		t.Fatalf("GET /objects request failed: %v", err)
 	}
@@ -72,7 +63,6 @@ func TestPostObject(t *testing.T) {
 		t.Fatalf("failed to decode GET response: %v", err)
 	}
 	resp.Body.Close()
-
 	if len(objects) != 1 {
 		t.Fatalf("expected 1 object after POST; got %d", len(objects))
 	}
@@ -83,15 +73,13 @@ func TestPostObject(t *testing.T) {
 
 func TestGetObjects(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
-
 	objectText := "Hello from DB insert"
 	userId := 1
 	userMessageId := 1
 	if _, err := database.InsertObject(DB, userId, userMessageId, objectText); err != nil {
 		t.Fatalf("InsertObject failed: %v", err)
 	}
-
-	resp, err := http.Get(ts.URL + "/objects")
+	resp, err := http.Get(ts.URL + "/objects?userId=1")
 	if err != nil {
 		t.Fatalf("GET /objects request failed: %v", err)
 	}
@@ -101,7 +89,6 @@ func TestGetObjects(t *testing.T) {
 		t.Fatalf("failed to decode GET response: %v", err)
 	}
 	resp.Body.Close()
-
 	if len(objects) != 1 {
 		t.Fatalf("expected 1 object; got %d", len(objects))
 	}
@@ -112,14 +99,12 @@ func TestGetObjects(t *testing.T) {
 
 func TestPutObject(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
-
 	originalText := "Original object"
 	userId := 1
 	userMessageId := 1
 	if _, err := database.InsertObject(DB, userId, userMessageId, originalText); err != nil {
 		t.Fatalf("InsertObject failed: %v", err)
 	}
-
 	updateObject := database.StoredObject{
 		UserId:        userId,
 		UserMessageID: userMessageId,
@@ -140,8 +125,7 @@ func TestPutObject(t *testing.T) {
 		t.Fatalf("PUT /objects request failed: %v", err)
 	}
 	resp.Body.Close()
-
-	resp, err = http.Get(ts.URL + "/objects")
+	resp, err = http.Get(ts.URL + "/objects?userId=1")
 	if err != nil {
 		t.Fatalf("GET /objects request failed after PUT: %v", err)
 	}
@@ -161,15 +145,13 @@ func TestPutObject(t *testing.T) {
 
 func TestDeleteObject(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
-
 	objectText := "Object to delete"
 	userId := 1
 	userMessageId := 1
 	if _, err := database.InsertObject(DB, userId, userMessageId, objectText); err != nil {
 		t.Fatalf("InsertObject failed: %v", err)
 	}
-
-	resp, err := http.Get(ts.URL + "/objects")
+	resp, err := http.Get(ts.URL + "/objects?userId=1")
 	if err != nil {
 		t.Fatalf("GET /objects request failed: %v", err)
 	}
@@ -179,12 +161,10 @@ func TestDeleteObject(t *testing.T) {
 		t.Fatalf("failed to decode GET response: %v", err)
 	}
 	resp.Body.Close()
-
 	if len(objects) != 1 {
 		t.Fatalf("expected 1 object before DELETE; got %d", len(objects))
 	}
-
-	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/objects?userId="+strconv.Itoa(1)+"&userMessageId="+strconv.Itoa(userId), nil)
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/objects?userId="+strconv.Itoa(userId)+"&userMessageId="+strconv.Itoa(userMessageId), nil)
 	if err != nil {
 		t.Fatalf("failed to create DELETE request: %v", err)
 	}
@@ -194,8 +174,7 @@ func TestDeleteObject(t *testing.T) {
 		t.Fatalf("DELETE /objects request failed: %v", err)
 	}
 	resp.Body.Close()
-
-	resp, err = http.Get(ts.URL + "/objects")
+	resp, err = http.Get(ts.URL + "/objects?userId=1")
 	if err != nil {
 		t.Fatalf("GET /objects request failed after DELETE: %v", err)
 	}
@@ -205,7 +184,6 @@ func TestDeleteObject(t *testing.T) {
 		t.Fatalf("failed to decode GET response after DELETE: %v", err)
 	}
 	resp.Body.Close()
-
 	if len(objects) != 0 {
 		t.Fatalf("expected 0 objects after DELETE; got %d", len(objects))
 	}
