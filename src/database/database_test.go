@@ -1,7 +1,6 @@
 package database
 
 import (
-	"cpsc559/src/util"
 	"path/filepath"
 	"testing"
 )
@@ -16,10 +15,10 @@ func TestInitAndClearDB(t *testing.T) {
 		t.Fatalf("InitDB error: %v", err)
 	}
 
-	unixMillis := util.MakeTimestamp()
 	objectText := "Hello, testing!"
 	userId := 1
-	if _, err := InsertObject(DB, objectText, userId, unixMillis); err != nil {
+	userMessageId := 1
+	if _, err := InsertObject(DB, userId, userMessageId, objectText); err != nil {
 		t.Fatalf("InsertObject failed: %v", err)
 	}
 
@@ -70,20 +69,19 @@ func TestMultipleObjects(t *testing.T) {
 	}
 
 	userId1 := 1
+	userMessageId1 := 1
 	userId2 := 2
+	userMessageId2 := 1
 	objectsUser1 := []string{"First object", "Second object", "Third object"}
 	objectsUser2 := []string{"User2 only object"}
 
-	unixMillis1 := util.MakeTimestamp()
-	unixMillis2 := util.MakeTimestamp()
-
 	for _, msg := range objectsUser1 {
-		if _, err := InsertObject(DB, msg, userId1, unixMillis1); err != nil {
+		if _, err := InsertObject(DB, userId1, userMessageId1, msg); err != nil {
 			t.Fatalf("failed to insert object for user 1: %v", err)
 		}
 	}
 	for _, msg := range objectsUser2 {
-		if _, err := InsertObject(DB, msg, userId2, unixMillis2); err != nil {
+		if _, err := InsertObject(DB, userId2, userMessageId2, msg); err != nil {
 			t.Fatalf("failed to insert object for user 2: %v", err)
 		}
 	}

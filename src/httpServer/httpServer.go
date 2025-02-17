@@ -33,7 +33,11 @@ func Initialize_http_server(DB *sql.DB) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(objects)
+		err = json.NewEncoder(w).Encode(objects)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	postObjectHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -46,18 +50,16 @@ func Initialize_http_server(DB *sql.DB) {
 		}
 
 		userId := object.UserId
+		userMessageId := object.UserMessageID
 		objectJson := object.Data
-		unixmillis := object.UnixMillis
 
-		if _, err := database.InsertObject(DB, objectJson, userId, unixmillis); err != nil {
+		if _, err := database.InsertObject(DB, userId, userMessageId, objectJson); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	deleteObjectHandler := func(w http.ResponseWriter, r *http.Request) {
-		idParam := r.URL.Query().Get("id")
-		id, err := strconv.Atoi(idParam)
 
 		userIdParam := r.URL.Query().Get("userId")
 		userId, err := strconv.Atoi(userIdParam)
@@ -67,7 +69,15 @@ func Initialize_http_server(DB *sql.DB) {
 			return
 		}
 
-		if _, err := database.DeleteObject(DB, id, userId); err != nil {
+		userMessageIdParam := r.URL.Query().Get("userMessageId")
+		userMessageId, err := strconv.Atoi(userMessageIdParam)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if _, err := database.DeleteObject(DB, userId, userMessageId); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -81,12 +91,11 @@ func Initialize_http_server(DB *sql.DB) {
 			return
 		}
 
-		id := object.ID
 		userId := object.UserId
+		userMessageId := object.UserMessageID
 		objectJson := object.Data
-		unixmillis := object.UnixMillis
 
-		if _, err := database.UpdateObjects(DB, objectJson, id, userId, unixmillis); err != nil {
+		if _, err := database.UpdateObjects(DB, userId, userMessageId, objectJson); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

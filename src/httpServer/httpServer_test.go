@@ -3,7 +3,6 @@ package httpServer
 import (
 	"bytes"
 	"cpsc559/src/database"
-	"cpsc559/src/util"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -45,9 +44,9 @@ func TestPostObject(t *testing.T) {
 	ts, _ := setupTestHttpServer(t)
 
 	postObject := database.StoredObject{
-		UserId:     1,
-		Data:       "Hello from POST",
-		UnixMillis: util.MakeTimestamp(),
+		UserId:        1,
+		UserMessageID: 1,
+		Data:          "Hello from POST",
 	}
 	postBytes, err := json.Marshal(postObject)
 	if err != nil {
@@ -85,10 +84,10 @@ func TestPostObject(t *testing.T) {
 func TestGetObjects(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
 
-	unixMillis := util.MakeTimestamp()
 	objectText := "Hello from DB insert"
 	userId := 1
-	if _, err := database.InsertObject(DB, objectText, userId, unixMillis); err != nil {
+	userMessageId := 1
+	if _, err := database.InsertObject(DB, userId, userMessageId, objectText); err != nil {
 		t.Fatalf("InsertObject failed: %v", err)
 	}
 
@@ -114,18 +113,17 @@ func TestGetObjects(t *testing.T) {
 func TestPutObject(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
 
-	unixMillis := util.MakeTimestamp()
 	originalText := "Original object"
 	userId := 1
-	if _, err := database.InsertObject(DB, originalText, userId, unixMillis); err != nil {
+	userMessageId := 1
+	if _, err := database.InsertObject(DB, userId, userMessageId, originalText); err != nil {
 		t.Fatalf("InsertObject failed: %v", err)
 	}
 
 	updateObject := database.StoredObject{
-		ID:         1,
-		UserId:     userId,
-		Data:       "Updated via PUT",
-		UnixMillis: util.MakeTimestamp(),
+		UserId:        userId,
+		UserMessageID: userMessageId,
+		Data:          "Updated via PUT",
 	}
 	updateBytes, err := json.Marshal(updateObject)
 	if err != nil {
@@ -164,10 +162,10 @@ func TestPutObject(t *testing.T) {
 func TestDeleteObject(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
 
-	unixMillis := util.MakeTimestamp()
 	objectText := "Object to delete"
 	userId := 1
-	if _, err := database.InsertObject(DB, objectText, userId, unixMillis); err != nil {
+	userMessageId := 1
+	if _, err := database.InsertObject(DB, userId, userMessageId, objectText); err != nil {
 		t.Fatalf("InsertObject failed: %v", err)
 	}
 
@@ -186,7 +184,7 @@ func TestDeleteObject(t *testing.T) {
 		t.Fatalf("expected 1 object before DELETE; got %d", len(objects))
 	}
 
-	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/objects?id="+strconv.Itoa(1)+"&userId="+strconv.Itoa(userId), nil)
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/objects?userId="+strconv.Itoa(1)+"&userMessageId="+strconv.Itoa(userId), nil)
 	if err != nil {
 		t.Fatalf("failed to create DELETE request: %v", err)
 	}

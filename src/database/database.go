@@ -10,10 +10,9 @@ import (
 )
 
 type StoredObject struct {
-	ID         int    `json:"id"` // primary key
-	UnixMillis int64  `json:"unix_millis"`
-	UserId     int    `json:"user_id"`
-	Data       string `json:"data"`
+	UserId        int    `json:"user_id"`
+	UserMessageID int    `json:"user_message_id"`
+	Data          string `json:"data"`
 }
 
 func InitDB(dbPath string) (error, *sql.DB) {
@@ -29,7 +28,7 @@ func InitDB(dbPath string) (error, *sql.DB) {
         CREATE TABLE IF NOT EXISTS objects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
-            unixmillis INTEGER DEFAULT (strftime('%s', 'now')),
+            user_message_id INTEGER,
             data TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -57,11 +56,11 @@ func ClearDB(dbPath string) error {
 	return nil
 }
 
-func InsertObject(DB *sql.DB, data string, userId int, unixmillis int64) (int, error) {
+func InsertObject(DB *sql.DB, userId int, user_message_id int, data string) (int, error) {
 	ctx := context.Background()
 	_, err := DB.ExecContext(ctx,
-		"INSERT INTO objects (user_id, data, unixmillis) VALUES (?, ?, ?)",
-		userId, data, unixmillis)
+		"INSERT INTO objects (user_id, user_message_id, data) VALUES (?, ?, ?)",
+		userId, user_message_id, data)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert object: %v", err)
 	}
@@ -70,7 +69,7 @@ func InsertObject(DB *sql.DB, data string, userId int, unixmillis int64) (int, e
 
 func GetObjects(DB *sql.DB, userId int) ([]StoredObject, error) {
 	ctx := context.Background()
-	rows, err := DB.QueryContext(ctx, "SELECT user_id, data, unixmillis FROM objects WHERE user_id = ?", userId)
+	rows, err := DB.QueryContext(ctx, "SELECT user_id, user_message_id, data FROM objects WHERE user_id = ?", userId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query objects: %v", err)
 	}
@@ -79,7 +78,7 @@ func GetObjects(DB *sql.DB, userId int) ([]StoredObject, error) {
 	msgs := []StoredObject{}
 	for rows.Next() {
 		var msg StoredObject
-		if err := rows.Scan(&msg.UserId, &msg.Data, &msg.UnixMillis); err != nil {
+		if err := rows.Scan(&msg.UserId, &msg.UserMessageID, &msg.Data); err != nil {
 			return nil, fmt.Errorf("failed to scan object: %v", err)
 		}
 		msgs = append(msgs, msg)
@@ -87,20 +86,18 @@ func GetObjects(DB *sql.DB, userId int) ([]StoredObject, error) {
 	return msgs, nil
 }
 
-func DeleteObject(DB *sql.DB, id int, userId int) (int, error) {
+func DeleteObject(DB *sql.DB, userId int, user_message_id int) (int, error) {
 	ctx := context.Background()
-	_, err := DB.ExecContext(ctx, "DELETE FROM objects WHERE id = ? AND user_id = ?", id, userId)
+	_, err := DB.ExecContext(ctx, "DELETE FROM objects WHERE user_id = ? AND user_message_id = ?", userId, user_message_id)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete object: %v", err)
 	}
 	return 1, nil
 }
 
-func UpdateObjects(DB *sql.DB, data string, id int, userId int, unixmillis int64) (int, error) {
+func UpdateObjects(DB *sql.DB, userId int, user_message_id int, data string) (int, error) {
 	ctx := context.Background()
-	_, err := DB.ExecContext(ctx,
-		"UPDATE objects SET data = ?, unixmillis = ? WHERE id = ? AND user_id = ?",
-		data, unixmillis, id, userId)
+	_, err := DB.ExecContext(ctx, "UPDATE objects SET data = ? WHERE user_id = ? AND user_message_id = ?", data, userId, user_message_id)
 	if err != nil {
 		return 0, fmt.Errorf("failed to update object: %v", err)
 	}
