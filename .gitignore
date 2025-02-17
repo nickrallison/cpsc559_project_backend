@@ -1,3 +1,5 @@
 /identifier.sqlite
 /.idea
 /data.db
+
+.venv
