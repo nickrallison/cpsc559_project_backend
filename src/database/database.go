@@ -26,7 +26,7 @@ func InitDB(dbPath string) (error, *sql.DB) {
 		return fmt.Errorf("failed to ping db: %v", err), nil
 	}
 	createStmt := `
-        CREATE TABLE IF NOT EXISTS messages (
+        CREATE TABLE IF NOT EXISTS objects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             unixmillis INTEGER DEFAULT (strftime('%s', 'now')),
@@ -35,7 +35,7 @@ func InitDB(dbPath string) (error, *sql.DB) {
         );
     `
 	if _, err = DB.ExecContext(ctx, createStmt); err != nil {
-		return fmt.Errorf("failed to create messages table: %v", err), nil
+		return fmt.Errorf("failed to create objects table: %v", err), nil
 	}
 	return nil, DB
 }
@@ -51,28 +51,28 @@ func ClearDB(dbPath string) error {
 	if err = db.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping db: %v", err)
 	}
-	if _, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS messages"); err != nil {
-		return fmt.Errorf("failed to drop messages table: %v", err)
+	if _, err = db.ExecContext(ctx, "DROP TABLE IF EXISTS objects"); err != nil {
+		return fmt.Errorf("failed to drop objects table: %v", err)
 	}
 	return nil
 }
 
-func InsertMessage(DB *sql.DB, data string, userId int, unixmillis int64) (int, error) {
+func InsertObject(DB *sql.DB, data string, userId int, unixmillis int64) (int, error) {
 	ctx := context.Background()
 	_, err := DB.ExecContext(ctx,
-		"INSERT INTO messages (user_id, data, unixmillis) VALUES (?, ?, ?)",
+		"INSERT INTO objects (user_id, data, unixmillis) VALUES (?, ?, ?)",
 		userId, data, unixmillis)
 	if err != nil {
-		return 0, fmt.Errorf("failed to insert message: %v", err)
+		return 0, fmt.Errorf("failed to insert object: %v", err)
 	}
 	return 1, nil
 }
 
-func GetMessages(DB *sql.DB, userId int) ([]StoredData, error) {
+func GetObjects(DB *sql.DB, userId int) ([]StoredData, error) {
 	ctx := context.Background()
-	rows, err := DB.QueryContext(ctx, "SELECT user_id, data, unixmillis FROM messages WHERE user_id = ?", userId)
+	rows, err := DB.QueryContext(ctx, "SELECT user_id, data, unixmillis FROM objects WHERE user_id = ?", userId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query messages: %v", err)
+		return nil, fmt.Errorf("failed to query objects: %v", err)
 	}
 	defer rows.Close()
 
@@ -80,29 +80,29 @@ func GetMessages(DB *sql.DB, userId int) ([]StoredData, error) {
 	for rows.Next() {
 		var msg StoredData
 		if err := rows.Scan(&msg.UserId, &msg.Data, &msg.UnixMillis); err != nil {
-			return nil, fmt.Errorf("failed to scan message: %v", err)
+			return nil, fmt.Errorf("failed to scan object: %v", err)
 		}
 		msgs = append(msgs, msg)
 	}
 	return msgs, nil
 }
 
-func DeleteMessage(DB *sql.DB, id int, userId int) (int, error) {
+func DeleteObject(DB *sql.DB, id int, userId int) (int, error) {
 	ctx := context.Background()
-	_, err := DB.ExecContext(ctx, "DELETE FROM messages WHERE id = ? AND user_id = ?", id, userId)
+	_, err := DB.ExecContext(ctx, "DELETE FROM objects WHERE id = ? AND user_id = ?", id, userId)
 	if err != nil {
-		return 0, fmt.Errorf("failed to delete message: %v", err)
+		return 0, fmt.Errorf("failed to delete object: %v", err)
 	}
 	return 1, nil
 }
 
-func UpdateMessages(DB *sql.DB, data string, id int, userId int, unixmillis int64) (int, error) {
+func UpdateObjects(DB *sql.DB, data string, id int, userId int, unixmillis int64) (int, error) {
 	ctx := context.Background()
 	_, err := DB.ExecContext(ctx,
-		"UPDATE messages SET data = ?, unixmillis = ? WHERE id = ? AND user_id = ?",
+		"UPDATE objects SET data = ?, unixmillis = ? WHERE id = ? AND user_id = ?",
 		data, unixmillis, id, userId)
 	if err != nil {
-		return 0, fmt.Errorf("failed to update message: %v", err)
+		return 0, fmt.Errorf("failed to update object: %v", err)
 	}
 	return 1, nil
 }

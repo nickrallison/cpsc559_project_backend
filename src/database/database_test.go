@@ -17,21 +17,21 @@ func TestInitAndClearDB(t *testing.T) {
 	}
 
 	unixMillis := util.MakeTimestamp()
-	messageText := "Hello, testing!"
+	objectText := "Hello, testing!"
 	userId := 1
-	if _, err := InsertMessage(DB, messageText, userId, unixMillis); err != nil {
-		t.Fatalf("InsertMessage failed: %v", err)
+	if _, err := InsertObject(DB, objectText, userId, unixMillis); err != nil {
+		t.Fatalf("InsertObject failed: %v", err)
 	}
 
-	messages, err := GetMessages(DB, userId)
+	objects, err := GetObjects(DB, userId)
 	if err != nil {
-		t.Fatalf("GetMessages failed: %v", err)
+		t.Fatalf("GetObjects failed: %v", err)
 	}
-	if len(messages) != 1 {
-		t.Fatalf("expected 1 message; got %d", len(messages))
+	if len(objects) != 1 {
+		t.Fatalf("expected 1 object; got %d", len(objects))
 	}
-	if messages[0].Data != messageText {
-		t.Errorf("expected message data %q; got %q", messageText, messages[0].Data)
+	if objects[0].Data != objectText {
+		t.Errorf("expected object data %q; got %q", objectText, objects[0].Data)
 	}
 
 	if err := DB.Close(); err != nil {
@@ -47,20 +47,20 @@ func TestInitAndClearDB(t *testing.T) {
 		t.Fatalf("InitDB error on reinit: %v", err)
 	}
 
-	messages, err = GetMessages(DB, userId)
+	objects, err = GetObjects(DB, userId)
 	if err != nil {
-		t.Fatalf("GetMessages failed after ClearDB: %v", err)
+		t.Fatalf("GetObjects failed after ClearDB: %v", err)
 	}
-	if len(messages) != 0 {
-		t.Fatalf("expected 0 messages after ClearDB; got %d", len(messages))
+	if len(objects) != 0 {
+		t.Fatalf("expected 0 objects after ClearDB; got %d", len(objects))
 	}
 	if err := DB.Close(); err != nil {
 		t.Fatalf("failed to close the database: %v", err)
 	}
 }
 
-func TestMultipleMessages(t *testing.T) {
-	testName := "TestMultipleMessages"
+func TestMultipleObjects(t *testing.T) {
+	testName := "TestMultipleObjects"
 	tempDir := t.TempDir()
 	dbPath := "file:" + filepath.Join(tempDir, testName+".db")
 
@@ -71,36 +71,36 @@ func TestMultipleMessages(t *testing.T) {
 
 	userId1 := 1
 	userId2 := 2
-	messagesUser1 := []string{"First message", "Second message", "Third message"}
-	messagesUser2 := []string{"User2 only message"}
+	objectsUser1 := []string{"First object", "Second object", "Third object"}
+	objectsUser2 := []string{"User2 only object"}
 
 	unixMillis1 := util.MakeTimestamp()
 	unixMillis2 := util.MakeTimestamp()
 
-	for _, msg := range messagesUser1 {
-		if _, err := InsertMessage(DB, msg, userId1, unixMillis1); err != nil {
-			t.Fatalf("failed to insert message for user 1: %v", err)
+	for _, msg := range objectsUser1 {
+		if _, err := InsertObject(DB, msg, userId1, unixMillis1); err != nil {
+			t.Fatalf("failed to insert object for user 1: %v", err)
 		}
 	}
-	for _, msg := range messagesUser2 {
-		if _, err := InsertMessage(DB, msg, userId2, unixMillis2); err != nil {
-			t.Fatalf("failed to insert message for user 2: %v", err)
+	for _, msg := range objectsUser2 {
+		if _, err := InsertObject(DB, msg, userId2, unixMillis2); err != nil {
+			t.Fatalf("failed to insert object for user 2: %v", err)
 		}
 	}
 
-	msgs, err := GetMessages(DB, userId1)
+	msgs, err := GetObjects(DB, userId1)
 	if err != nil {
-		t.Fatalf("GetMessages for user 1 failed: %v", err)
+		t.Fatalf("GetObjects for user 1 failed: %v", err)
 	}
-	if len(msgs) != len(messagesUser1) {
-		t.Errorf("expected %d messages for user 1; got %d", len(messagesUser1), len(msgs))
+	if len(msgs) != len(objectsUser1) {
+		t.Errorf("expected %d objects for user 1; got %d", len(objectsUser1), len(msgs))
 	}
-	msgs, err = GetMessages(DB, userId2)
+	msgs, err = GetObjects(DB, userId2)
 	if err != nil {
-		t.Fatalf("GetMessages for user 2 failed: %v", err)
+		t.Fatalf("GetObjects for user 2 failed: %v", err)
 	}
-	if len(msgs) != len(messagesUser2) {
-		t.Errorf("expected %d message for user 2; got %d", len(messagesUser2), len(msgs))
+	if len(msgs) != len(objectsUser2) {
+		t.Errorf("expected %d object for user 2; got %d", len(objectsUser2), len(msgs))
 	}
 	if err := DB.Close(); err != nil {
 		t.Fatalf("failed to close the database: %v", err)

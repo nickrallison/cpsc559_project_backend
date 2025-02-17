@@ -41,97 +41,97 @@ func setupTestHttpServer(t *testing.T) (*httptest.Server, *sql.DB) {
 	return ts, DB
 }
 
-func TestPostMessage(t *testing.T) {
+func TestPostObject(t *testing.T) {
 	ts, _ := setupTestHttpServer(t)
 
-	postMessage := database.StoredData{
+	postObject := database.StoredData{
 		UserId:     1,
 		Data:       "Hello from POST",
 		UnixMillis: util.MakeTimestamp(),
 	}
-	postBytes, err := json.Marshal(postMessage)
+	postBytes, err := json.Marshal(postObject)
 	if err != nil {
-		t.Fatalf("failed to marshal post message: %v", err)
+		t.Fatalf("failed to marshal post object: %v", err)
 	}
 
-	resp, err := http.Post(ts.URL+"/messages", "application/json", bytes.NewBuffer(postBytes))
+	resp, err := http.Post(ts.URL+"/objects", "application/json", bytes.NewBuffer(postBytes))
 	if err != nil {
-		t.Fatalf("POST /messages request failed: %v", err)
+		t.Fatalf("POST /objects request failed: %v", err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status OK; got %s", resp.Status)
 	}
 
-	resp, err = http.Get(ts.URL + "/messages")
+	resp, err = http.Get(ts.URL + "/objects")
 	if err != nil {
-		t.Fatalf("GET /messages request failed: %v", err)
+		t.Fatalf("GET /objects request failed: %v", err)
 	}
-	var messages []database.StoredData
-	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+	var objects []database.StoredData
+	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response: %v", err)
 	}
 	resp.Body.Close()
 
-	if len(messages) != 1 {
-		t.Fatalf("expected 1 message after POST; got %d", len(messages))
+	if len(objects) != 1 {
+		t.Fatalf("expected 1 object after POST; got %d", len(objects))
 	}
-	if messages[0].Data != postMessage.Data {
-		t.Errorf("expected message data %q; got %q", postMessage.Data, messages[0].Data)
+	if objects[0].Data != postObject.Data {
+		t.Errorf("expected object data %q; got %q", postObject.Data, objects[0].Data)
 	}
 }
 
-func TestGetMessages(t *testing.T) {
+func TestGetObjects(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
 
 	unixMillis := util.MakeTimestamp()
-	messageText := "Hello from DB insert"
+	objectText := "Hello from DB insert"
 	userId := 1
-	if _, err := database.InsertMessage(DB, messageText, userId, unixMillis); err != nil {
-		t.Fatalf("InsertMessage failed: %v", err)
+	if _, err := database.InsertObject(DB, objectText, userId, unixMillis); err != nil {
+		t.Fatalf("InsertObject failed: %v", err)
 	}
 
-	resp, err := http.Get(ts.URL + "/messages")
+	resp, err := http.Get(ts.URL + "/objects")
 	if err != nil {
-		t.Fatalf("GET /messages request failed: %v", err)
+		t.Fatalf("GET /objects request failed: %v", err)
 	}
-	var messages []database.StoredData
-	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+	var objects []database.StoredData
+	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response: %v", err)
 	}
 	resp.Body.Close()
 
-	if len(messages) != 1 {
-		t.Fatalf("expected 1 message; got %d", len(messages))
+	if len(objects) != 1 {
+		t.Fatalf("expected 1 object; got %d", len(objects))
 	}
-	if messages[0].Data != messageText {
-		t.Errorf("expected message data %q; got %q", messageText, messages[0].Data)
+	if objects[0].Data != objectText {
+		t.Errorf("expected object data %q; got %q", objectText, objects[0].Data)
 	}
 }
 
-func TestPutMessage(t *testing.T) {
+func TestPutObject(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
 
 	unixMillis := util.MakeTimestamp()
-	originalText := "Original message"
+	originalText := "Original object"
 	userId := 1
-	if _, err := database.InsertMessage(DB, originalText, userId, unixMillis); err != nil {
-		t.Fatalf("InsertMessage failed: %v", err)
+	if _, err := database.InsertObject(DB, originalText, userId, unixMillis); err != nil {
+		t.Fatalf("InsertObject failed: %v", err)
 	}
 
-	updateMessage := database.StoredData{
+	updateObject := database.StoredData{
 		ID:         1,
 		UserId:     userId,
 		Data:       "Updated via PUT",
 		UnixMillis: util.MakeTimestamp(),
 	}
-	updateBytes, err := json.Marshal(updateMessage)
+	updateBytes, err := json.Marshal(updateObject)
 	if err != nil {
-		t.Fatalf("failed to marshal update message: %v", err)
+		t.Fatalf("failed to marshal update object: %v", err)
 	}
-	req, err := http.NewRequest(http.MethodPut, ts.URL+"/messages", bytes.NewBuffer(updateBytes))
+	req, err := http.NewRequest(http.MethodPut, ts.URL+"/objects", bytes.NewBuffer(updateBytes))
 	if err != nil {
 		t.Fatalf("failed to create PUT request: %v", err)
 	}
@@ -139,76 +139,76 @@ func TestPutMessage(t *testing.T) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		t.Fatalf("PUT /messages request failed: %v", err)
+		t.Fatalf("PUT /objects request failed: %v", err)
 	}
 	resp.Body.Close()
 
-	resp, err = http.Get(ts.URL + "/messages")
+	resp, err = http.Get(ts.URL + "/objects")
 	if err != nil {
-		t.Fatalf("GET /messages request failed after PUT: %v", err)
+		t.Fatalf("GET /objects request failed after PUT: %v", err)
 	}
-	var messages []database.StoredData
-	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+	var objects []database.StoredData
+	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response after PUT: %v", err)
 	}
 	resp.Body.Close()
-	if len(messages) != 1 {
-		t.Fatalf("expected 1 message after PUT; got %d", len(messages))
+	if len(objects) != 1 {
+		t.Fatalf("expected 1 object after PUT; got %d", len(objects))
 	}
-	if messages[0].Data != updateMessage.Data {
-		t.Errorf("expected updated message data %q; got %q", updateMessage.Data, messages[0].Data)
+	if objects[0].Data != updateObject.Data {
+		t.Errorf("expected updated object data %q; got %q", updateObject.Data, objects[0].Data)
 	}
 }
 
-func TestDeleteMessage(t *testing.T) {
+func TestDeleteObject(t *testing.T) {
 	ts, DB := setupTestHttpServer(t)
 
 	unixMillis := util.MakeTimestamp()
-	messageText := "Message to delete"
+	objectText := "Object to delete"
 	userId := 1
-	if _, err := database.InsertMessage(DB, messageText, userId, unixMillis); err != nil {
-		t.Fatalf("InsertMessage failed: %v", err)
+	if _, err := database.InsertObject(DB, objectText, userId, unixMillis); err != nil {
+		t.Fatalf("InsertObject failed: %v", err)
 	}
 
-	resp, err := http.Get(ts.URL + "/messages")
+	resp, err := http.Get(ts.URL + "/objects")
 	if err != nil {
-		t.Fatalf("GET /messages request failed: %v", err)
+		t.Fatalf("GET /objects request failed: %v", err)
 	}
-	var messages []database.StoredData
-	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+	var objects []database.StoredData
+	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response: %v", err)
 	}
 	resp.Body.Close()
 
-	if len(messages) != 1 {
-		t.Fatalf("expected 1 message before DELETE; got %d", len(messages))
+	if len(objects) != 1 {
+		t.Fatalf("expected 1 object before DELETE; got %d", len(objects))
 	}
 
-	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/messages?id="+strconv.Itoa(1)+"&userId="+strconv.Itoa(userId), nil)
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/objects?id="+strconv.Itoa(1)+"&userId="+strconv.Itoa(userId), nil)
 	if err != nil {
 		t.Fatalf("failed to create DELETE request: %v", err)
 	}
 	client := &http.Client{}
 	resp, err = client.Do(req)
 	if err != nil {
-		t.Fatalf("DELETE /messages request failed: %v", err)
+		t.Fatalf("DELETE /objects request failed: %v", err)
 	}
 	resp.Body.Close()
 
-	resp, err = http.Get(ts.URL + "/messages")
+	resp, err = http.Get(ts.URL + "/objects")
 	if err != nil {
-		t.Fatalf("GET /messages request failed after DELETE: %v", err)
+		t.Fatalf("GET /objects request failed after DELETE: %v", err)
 	}
-	messages = nil
-	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+	objects = nil
+	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
 		resp.Body.Close()
 		t.Fatalf("failed to decode GET response after DELETE: %v", err)
 	}
 	resp.Body.Close()
 
-	if len(messages) != 0 {
-		t.Fatalf("expected 0 messages after DELETE; got %d", len(messages))
+	if len(objects) != 0 {
+		t.Fatalf("expected 0 objects after DELETE; got %d", len(objects))
 	}
 }
