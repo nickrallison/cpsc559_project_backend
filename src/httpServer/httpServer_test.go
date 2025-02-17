@@ -12,6 +12,7 @@ import (
 	"testing"
 )
 
+// setupTestHttpServer sets up a new mux and database for testing.
 func setupTestHttpServer(t *testing.T) (*httptest.Server, *sql.DB) {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -35,14 +36,17 @@ func setupTestHttpServer(t *testing.T) (*httptest.Server, *sql.DB) {
 
 func TestPostObject(t *testing.T) {
 	ts, _ := setupTestHttpServer(t)
-	postObject := database.StoredObject{
-		UserId:        1,
-		UserMessageID: 1,
-		Data:          "Hello from POST",
+
+	objectsToPost := []database.StoredObject{
+		{
+			UserId:        1,
+			UserMessageID: 1,
+			Data:          "Hello from POST array",
+		},
 	}
-	postBytes, err := json.Marshal(postObject)
+	postBytes, err := json.Marshal(objectsToPost)
 	if err != nil {
-		t.Fatalf("failed to marshal post object: %v", err)
+		t.Fatalf("failed to marshal post object array: %v", err)
 	}
 	resp, err := http.Post(ts.URL+"/objects", "application/json", bytes.NewBuffer(postBytes))
 	if err != nil {
@@ -53,6 +57,7 @@ func TestPostObject(t *testing.T) {
 		t.Errorf("expected status OK; got %s", resp.Status)
 	}
 
+	// Verify the object was inserted.
 	resp, err = http.Get(ts.URL + "/objects?userId=1")
 	if err != nil {
 		t.Fatalf("GET /objects request failed: %v", err)
@@ -66,8 +71,51 @@ func TestPostObject(t *testing.T) {
 	if len(objects) != 1 {
 		t.Fatalf("expected 1 object after POST; got %d", len(objects))
 	}
-	if objects[0].Data != postObject.Data {
-		t.Errorf("expected object data %q; got %q", postObject.Data, objects[0].Data)
+	if objects[0].Data != objectsToPost[0].Data {
+		t.Errorf("expected object data %q; got %q", objectsToPost[0].Data, objects[0].Data)
+	}
+}
+
+func TestPostMultipleObjects(t *testing.T) {
+	ts, _ := setupTestHttpServer(t)
+	// Post multiple objects at once.
+	objectsToPost := []database.StoredObject{
+		{
+			UserId:        2,
+			UserMessageID: 1,
+			Data:          "First object for user2",
+		},
+		{
+			UserId:        2,
+			UserMessageID: 2,
+			Data:          "Second object for user2",
+		},
+	}
+	postBytes, err := json.Marshal(objectsToPost)
+	if err != nil {
+		t.Fatalf("failed to marshal post objects array: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/objects", "application/json", bytes.NewBuffer(postBytes))
+	if err != nil {
+		t.Fatalf("POST /objects request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status OK; got %s", resp.Status)
+	}
+	// Verify both objects were inserted.
+	resp, err = http.Get(ts.URL + "/objects?userId=2")
+	if err != nil {
+		t.Fatalf("GET /objects request failed: %v", err)
+	}
+	var objects []database.StoredObject
+	if err := json.NewDecoder(resp.Body).Decode(&objects); err != nil {
+		resp.Body.Close()
+		t.Fatalf("failed to decode GET response: %v", err)
+	}
+	resp.Body.Close()
+	if len(objects) != len(objectsToPost) {
+		t.Fatalf("expected %d objects after POST; got %d", len(objectsToPost), len(objects))
 	}
 }
 
@@ -94,6 +142,41 @@ func TestGetObjects(t *testing.T) {
 	}
 	if objects[0].Data != objectText {
 		t.Errorf("expected object data %q; got %q", objectText, objects[0].Data)
+	}
+}
+
+func TestGetSingleObject(t *testing.T) {
+	ts, DB := setupTestHttpServer(t)
+	// Insert multiple objects for the same user.
+	userId := 3
+	objectsToInsert := []database.StoredObject{
+		{UserId: userId, UserMessageID: 1, Data: "Message 1"},
+		{UserId: userId, UserMessageID: 2, Data: "Message 2"},
+	}
+	for _, obj := range objectsToInsert {
+		if _, err := database.InsertObject(DB, obj.UserId, obj.UserMessageID, obj.Data); err != nil {
+			t.Fatalf("InsertObject failed: %v", err)
+		}
+	}
+	// Request a specific object using userMessageId=2.
+	resp, err := http.Get(ts.URL + "/objects?userId=3&userMessageId=2")
+	if err != nil {
+		t.Fatalf("GET /objects with userMessageId request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK; got %d", resp.StatusCode)
+	}
+	// In this case the handler returns a single object (not an array)
+	var obj database.StoredObject
+	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
+		t.Fatalf("failed to decode GET single object response: %v", err)
+	}
+	if obj.UserMessageID != 2 {
+		t.Errorf("expected userMessageID %d; got %d", 2, obj.UserMessageID)
+	}
+	if obj.Data != "Message 2" {
+		t.Errorf("expected data %q; got %q", "Message 2", obj.Data)
 	}
 }
 

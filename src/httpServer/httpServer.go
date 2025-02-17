@@ -4,6 +4,7 @@ import (
 	"cpsc559/src/database"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 )
@@ -33,15 +34,41 @@ func Initialize_http_server(DB *sql.DB) {
 			http.Error(w, "invalid userId parameter", http.StatusBadRequest)
 			return
 		}
-		// Get objects
+
+		userMessageIdParam := r.URL.Query().Get("userMessageId")
+		if userMessageIdParam != "" {
+			userMessageId, err := strconv.Atoi(userMessageIdParam)
+			if err != nil {
+				http.Error(w, "invalid userMessageId parameter", http.StatusBadRequest)
+				return
+			}
+			ctx := r.Context()
+			query := "SELECT user_id, user_message_id, data FROM objects WHERE user_id = ? AND user_message_id = ?"
+			row := DB.QueryRowContext(ctx, query, userId, userMessageId)
+			var obj database.StoredObject
+			if err := row.Scan(&obj.UserId, &obj.UserMessageID, &obj.Data); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					http.Error(w, "object not found", http.StatusNotFound)
+					return
+				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(obj); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+
 		objects, err := database.GetObjects(DB, userId)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(w).Encode(objects)
-		if err != nil {
+		if err := json.NewEncoder(w).Encode(objects); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -49,21 +76,23 @@ func Initialize_http_server(DB *sql.DB) {
 
 	postObjectHandler := func(w http.ResponseWriter, r *http.Request) {
 
-		var object database.StoredObject
-		err := json.NewDecoder(r.Body).Decode(&object)
+		var objects []database.StoredObject
+		err := json.NewDecoder(r.Body).Decode(&objects)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		userId := object.UserId
-		userMessageId := object.UserMessageID
-		objectJson := object.Data
-
-		if _, err := database.InsertObject(DB, userId, userMessageId, objectJson); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		for _, object := range objects {
+			userId := object.UserId
+			userMessageId := object.UserMessageID
+			objectJson := object.Data
+			if _, err := database.InsertObject(DB, userId, userMessageId, objectJson); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
+		w.WriteHeader(http.StatusOK)
 	}
 
 	deleteObjectHandler := func(w http.ResponseWriter, r *http.Request) {
