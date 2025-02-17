@@ -1,11 +1,12 @@
 package main
 
 import (
+	"cpsc559/src/database"
+	"cpsc559/src/httpServer"
 	"database/sql"
 	"flag"
 	"log"
 	"net/http"
-	"time"
 )
 
 const (
@@ -15,12 +16,6 @@ const (
 	HTTPHOST = "localhost"
 	HTTPPORT = "8080"
 )
-
-type StoredData struct {
-	UnixMillis int64  `json:"id"`
-	UserId     int    `json:"user_id"`
-	Data       string `json:"data"`
-}
 
 func main() {
 
@@ -32,20 +27,15 @@ func main() {
 	println("ip:", *ip)
 
 	var DB *sql.DB
-	err, DB := InitDB(*dbPath)
+	err, DB := database.InitDB(*dbPath)
 
 	if err != nil {
 		log.Fatalf("InitDB error: %v", err)
 	}
 
-	// Initialize the HTTP server
-	initialize_http_server(DB)
+	httpServer.Initialize_http_server(DB)
 
 	log.Printf("Server starting on %s:%s", HTTPHOST, HTTPPORT)
 	log.Fatal(http.ListenAndServe(HTTPHOST+":"+HTTPPORT, nil))
 
-}
-
-func makeTimestamp() int64 {
-	return time.Now().UnixNano() / 1e6
 }

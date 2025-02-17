@@ -1,4 +1,4 @@
-package main
+package database
 
 import (
 	"context"
@@ -8,6 +8,13 @@ import (
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 	_ "modernc.org/sqlite"
 )
+
+type StoredData struct {
+	ID         int    `json:"id"` // primary key
+	UnixMillis int64  `json:"unix_millis"`
+	UserId     int    `json:"user_id"`
+	Data       string `json:"data"`
+}
 
 func InitDB(dbPath string) (error, *sql.DB) {
 	DB, err := sql.Open("libsql", dbPath)
@@ -78,4 +85,24 @@ func GetMessages(DB *sql.DB, userId int) ([]StoredData, error) {
 		msgs = append(msgs, msg)
 	}
 	return msgs, nil
+}
+
+func DeleteMessage(DB *sql.DB, id int, userId int) (int, error) {
+	ctx := context.Background()
+	_, err := DB.ExecContext(ctx, "DELETE FROM messages WHERE id = ? AND user_id = ?", id, userId)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete message: %v", err)
+	}
+	return 1, nil
+}
+
+func UpdateMessages(DB *sql.DB, data string, id int, userId int, unixmillis int64) (int, error) {
+	ctx := context.Background()
+	_, err := DB.ExecContext(ctx,
+		"UPDATE messages SET data = ?, unixmillis = ? WHERE id = ? AND user_id = ?",
+		data, unixmillis, id, userId)
+	if err != nil {
+		return 0, fmt.Errorf("failed to update message: %v", err)
+	}
+	return 1, nil
 }

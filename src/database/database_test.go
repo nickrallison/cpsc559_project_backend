@@ -1,6 +1,7 @@
-package main
+package database
 
 import (
+	"cpsc559/src/util"
 	"path/filepath"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestInitAndClearDB(t *testing.T) {
 		t.Fatalf("InitDB error: %v", err)
 	}
 
-	unixMillis := makeTimestamp()
+	unixMillis := util.MakeTimestamp()
 	messageText := "Hello, testing!"
 	userId := 1
 	if _, err := InsertMessage(DB, messageText, userId, unixMillis); err != nil {
@@ -73,8 +74,8 @@ func TestMultipleMessages(t *testing.T) {
 	messagesUser1 := []string{"First message", "Second message", "Third message"}
 	messagesUser2 := []string{"User2 only message"}
 
-	unixMillis1 := makeTimestamp()
-	unixMillis2 := makeTimestamp()
+	unixMillis1 := util.MakeTimestamp()
+	unixMillis2 := util.MakeTimestamp()
 
 	for _, msg := range messagesUser1 {
 		if _, err := InsertMessage(DB, msg, userId1, unixMillis1); err != nil {
