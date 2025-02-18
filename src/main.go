@@ -33,7 +33,7 @@ func main() {
 		log.Fatalf("InitDB error: %v", err)
 	}
 
-	httpServer.Initialize_http_server(DB)
+	httpServer.InitializeHttpServer(DB)
 
 	log.Printf("Server starting on %s:%s", HTTPHOST, HTTPPORT)
 	log.Fatal(http.ListenAndServe(HTTPHOST+":"+HTTPPORT, nil))

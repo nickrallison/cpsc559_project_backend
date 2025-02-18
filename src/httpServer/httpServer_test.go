@@ -24,7 +24,7 @@ func setupTestHttpServer(t *testing.T) (*httptest.Server, *sql.DB) {
 	if err != nil {
 		t.Fatalf("InitDB error: %v", err)
 	}
-	Initialize_http_server(DB)
+	InitializeHttpServer(DB)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		ts.Close()

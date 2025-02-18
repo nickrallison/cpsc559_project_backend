@@ -21,7 +21,7 @@ func newRoute(path string, handler func(w http.ResponseWriter, r *http.Request))
 	}
 }
 
-func Initialize_http_server(DB *sql.DB) {
+func InitializeHttpServer(DB *sql.DB) {
 
 	getObjectsHandler := func(w http.ResponseWriter, r *http.Request) {
 		userIdParam := r.URL.Query().Get("userId")
