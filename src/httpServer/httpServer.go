@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+
+	"github.com/rs/cors"
 )
 
 type Route struct {
@@ -156,8 +158,17 @@ func InitializeHttpServer(DB *sql.DB) {
 		newRoute("/objects", handleObjects),
 	}
 
+	corsHandler := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:3000"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+		AllowCredentials: true,
+	})
+
+	// Apply the CORS middleware for each route
 	for _, r := range routes {
-		http.HandleFunc(r.path, r.handler)
+		// Use http.HandlerFunc to wrap the handler function so that it matches the signature for HandleFunc
+		http.HandleFunc(r.path, corsHandler.Handler(http.HandlerFunc(r.handler)).ServeHTTP)
 	}
 
 }
