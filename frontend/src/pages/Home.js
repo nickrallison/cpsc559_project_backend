@@ -7,6 +7,7 @@ const Home = () => {
   const [userMessageId, setUserMessageId] = useState('');
   const [data, setData] = useState('');
   const [responseMessage, setResponseMessage] = useState('');
+  const [fetchedObjects, setFetchedObjects] = useState([]);
 
   // Handle form submission
   const handleSubmit = (e) => {
@@ -28,6 +29,20 @@ const Home = () => {
       })
       .catch((error) => {
         setResponseMessage('Error submitting data');
+        console.error('Error:', error);
+      });
+  };
+
+  // Handle fetching objects by User ID
+  const handleGetObjects = () => {
+    axios
+      .get(`http://localhost:8081/objects?userId=1`)
+      .then((response) => {
+        setFetchedObjects(response.data);
+        setResponseMessage('');
+      })
+      .catch((error) => {
+        setResponseMessage('Error fetching data');
         console.error('Error:', error);
       });
   };
@@ -66,6 +81,15 @@ const Home = () => {
         <button type="submit">Submit</button>
       </form>
       {responseMessage && <p>{responseMessage}</p>}
+      <h1>Get Where User id is 1</h1>
+      <button onClick={handleGetObjects} style={{ marginTop: "10px", backgroundColor: "#4C7355", color: "white", padding: "10px", border: "none", cursor: "pointer", borderRadius: "5px" }}>
+        Get Items
+      </button>
+      <ul>
+        {fetchedObjects.map((obj, index) => (
+          <li key={index}>{JSON.stringify(obj)}</li>
+        ))}
+      </ul>
     </div>
   );
 };

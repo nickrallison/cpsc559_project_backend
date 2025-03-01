@@ -3,6 +3,7 @@ package main
 import (
 	"cpsc559/src/database"
 	"cpsc559/src/httpServer"
+	"cpsc559/src/follower"
 	"database/sql"
 	"flag"
 	"log"
@@ -35,7 +36,9 @@ func main() {
 
 	httpServer.InitializeHttpServer(DB)
 
+	
+	// starting follower as a separte go routine using the keyowrd: go
+	go follower.InitializeFollower()
 	log.Printf("Server starting on %s:%s", HTTPHOST, HTTPPORT)
 	log.Fatal(http.ListenAndServe(HTTPHOST+":"+HTTPPORT, nil))
-
 }

@@ -23,6 +23,57 @@ func newRoute(path string, handler func(w http.ResponseWriter, r *http.Request))
 	}
 }
 
+func GetObjectsHandler(DB *sql.DB, w http.ResponseWriter, r *http.Request){
+	userIdParam := r.URL.Query().Get("userId")
+		if userIdParam == "" {
+			http.Error(w, "missing userId parameter", http.StatusBadRequest)
+			return
+		}
+		userId, err := strconv.Atoi(userIdParam)
+		if err != nil {
+			http.Error(w, "invalid userId parameter", http.StatusBadRequest)
+			return
+		}
+
+		userMessageIdParam := r.URL.Query().Get("userMessageId")
+		if userMessageIdParam != "" {
+			userMessageId, err := strconv.Atoi(userMessageIdParam)
+			if err != nil {
+				http.Error(w, "invalid userMessageId parameter", http.StatusBadRequest)
+				return
+			}
+			ctx := r.Context()
+			query := "SELECT user_id, user_message_id, data FROM objects WHERE user_id = ? AND user_message_id = ?"
+			row := DB.QueryRowContext(ctx, query, userId, userMessageId)
+			var obj database.StoredObject
+			if err := row.Scan(&obj.UserId, &obj.UserMessageID, &obj.Data); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					http.Error(w, "object not found", http.StatusNotFound)
+					return
+				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(obj); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+
+		objects, err := database.GetObjects(DB, userId)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(objects); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+}
+
 func InitializeHttpServer(DB *sql.DB) {
 
 	getObjectsHandler := func(w http.ResponseWriter, r *http.Request) {
