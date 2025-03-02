@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, {useState} from 'react';
 import axios from 'axios';
 
 const Home = () => {
@@ -36,7 +36,7 @@ const Home = () => {
   // Handle fetching objects by User ID
   const handleGetObjects = () => {
     axios
-      .get(`http://localhost:8081/objects?userId=1`)
+      .get(`http://localhost:8080/objects?userId=1`)
       .then((response) => {
         setFetchedObjects(response.data);
         setResponseMessage('');
