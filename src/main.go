@@ -48,8 +48,8 @@ func main() {
 	ps.Start()
 	defer ps.Stop()
 
-	httpServer.NewHTTPHandler(&ps)
+	mux := httpServer.NewHTTPHandler(&ps)
 
 	log.Printf("Server starting on %s:%s", HTTPHOST, HTTPPORT)
-	log.Fatal(http.ListenAndServe(HTTPHOST+":"+HTTPPORT, nil))
+	log.Fatal(http.ListenAndServe(HTTPHOST+":"+HTTPPORT, mux))
 }

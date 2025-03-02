@@ -1,5 +1,4 @@
 import requests
-import json
 
 
 class StoredObject:
@@ -8,11 +7,11 @@ class StoredObject:
         self.user_message_id = user_message_id
         self.data = data
 
-    def __dict__(self):
+    def as_dict(self):
         return {
-            'user_id': self.user_id,
-            'user_message_id': self.user_message_id,
-            'data': self.data
+            "user_id": self.user_id,
+            "user_message_id": self.user_message_id,
+            "data": self.data
         }
 
 
@@ -28,9 +27,9 @@ def main():
             for j in range(3):
                 obj = StoredObject(i, j, f'data-{i}-{j}')
                 objects.append(obj)
-                print(f"Created object: {obj.__dict__()}")
+                print(f"Created object: {obj.as_dict()}")
 
-    requests.post('http://localhost:8080/objects', json=[obj.__dict__() for obj in objects])
+    requests.post('http://localhost:8080/objects', json=[obj.as_dict() for obj in objects])
     response = requests.get(url).json()
 
     for obj in response:
