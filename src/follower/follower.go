@@ -14,25 +14,21 @@ import (
 var DB *sql.DB
 var followerPeer *peer.PeerServer
 
-// InitializeFollower sets up the follower server (only handling GET requests)
-// using its own database and a dedicated PeerServer instance.
 func InitializeFollower() {
-	// Use a dedicated DB file for the follower
 	dbPath := "file:follower_data.db"
 	port := "8081"
 
+	// Initializing follower
 	var err error
 	err, DB = database.InitDB(dbPath)
 	if err != nil {
 		log.Fatalf("InitDB error: %v", err)
 	}
 
-	// Create a follower peer server instance.
-	// (If your follower is supposed to forward write requests, set the LeaderAddr accordingly.)
 	ps := peer.NewPeerServer(peer.Follower, port, "", "", DB)
 	followerPeer = &ps
 
-	// Set up CORS rules so that the frontend can access our endpoint.
+	// CORS rules modification so that it is able to connec to the frontend
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:3000"},
 		AllowedMethods:   []string{"GET"},
@@ -40,7 +36,7 @@ func InitializeFollower() {
 		AllowCredentials: true,
 	})
 
-	// Create a mux that only handles GET requests.
+	// only handles read requests
 	mux := http.NewServeMux()
 	mux.Handle("/objects", corsHandler.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -60,8 +56,6 @@ func InitializeFollower() {
 	}()
 }
 
-// CleanupFollower should be called when the follower is to shut down (for example, at the end of a test).
-// It closes the DB connection and clears the follower database.
 func CleanupFollower() {
 	if DB != nil {
 		if err := DB.Close(); err != nil {
