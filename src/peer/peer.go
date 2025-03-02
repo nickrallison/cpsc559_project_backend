@@ -279,7 +279,6 @@ func (ps *PeerServer) handleDeleteObject(conn net.Conn, pm PeerMessage) {
 
 // pushUpdateToPeer is used by the leader to send write updates to a follower.
 func (ps *PeerServer) pushUpdateToPeer(addr string, pm PeerMessage) error {
-	// Annotate the message so that the follower recognizes it is from the leader.
 	pm.Metadata.Sender = ps.PeerAddr
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -301,7 +300,6 @@ func (ps *PeerServer) pushUpdateToPeer(addr string, pm PeerMessage) error {
 // ForwardRequestToLeader is called by a follower to send a write (store/update/delete)
 // to its leader.
 func (ps *PeerServer) ForwardRequestToLeader(pm PeerMessage) (map[string]string, error) {
-	// Set the sender field to the follower's address.
 	pm.Metadata.Sender = ps.PeerAddr
 	if ps.LeaderAddr == "" {
 		return nil, fmt.Errorf("leader address is not set")
@@ -359,7 +357,6 @@ func (ps *PeerServer) StoreObjects(objs []database.StoredObject) (map[string]str
 			if _, err := database.InsertObject(ps.DB, obj.UserId, obj.UserMessageID, obj.Data); err != nil {
 				return nil, err
 			}
-			// push update to followers asynchronously
 			for _, addr := range ps.knownPeers {
 				go func(peerAddr string, o database.StoredObject) {
 					pm := PeerMessage{Type: StoreObject, Data: o}

@@ -304,7 +304,6 @@ func TestGetObjectsAndSingleObject(t *testing.T) {
 	leaderURL, followerURL, cleanup := setupHTTPServers(t)
 	defer cleanup()
 
-	// Insert two objects via a POST on the leader.
 	objsToPost := []database.StoredObject{
 		{UserId: 3, UserMessageID: 1, Data: "Message 1"},
 		{UserId: 3, UserMessageID: 2, Data: "Message 2"},
@@ -319,7 +318,7 @@ func TestGetObjectsAndSingleObject(t *testing.T) {
 	}
 	time.Sleep(150 * time.Millisecond)
 
-	// Test GETting all objects.
+	// Test Getting all objects.
 	for _, url := range []string{leaderURL, followerURL} {
 		t.Run("GET_All "+url, func(t *testing.T) {
 			objs, err := httpGetObjects(t, url, 3)
@@ -332,7 +331,7 @@ func TestGetObjectsAndSingleObject(t *testing.T) {
 		})
 	}
 
-	// Test GETting a single object by specifying userMessageId.
+	// Test Getting a single object by specifying userMessageId.
 	for _, url := range []string{leaderURL, followerURL} {
 		t.Run("GET_Single "+url, func(t *testing.T) {
 			objs, err := httpGetObjects(t, url, 3, 2)
