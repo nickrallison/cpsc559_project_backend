@@ -1,6 +1,6 @@
 /identifier.sqlite
 /.idea
-/data.db
+*.db
 
 *.exe
 
