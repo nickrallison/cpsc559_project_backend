@@ -10,11 +10,6 @@ import (
 	"net/http"
 )
 
-const (
-	HTTPHOST = "localhost"
-	HTTPPORT = "8080"
-)
-
 func main() {
 	// Parse command-line flags.
 	dbPath := flag.String("db", "file:data.db", "libsql database file path")
@@ -27,6 +22,8 @@ func main() {
 	leaderAddr := flag.String("leaderAddr", "", "Leader address for follower mode (e.g. 'localhost:9000')")
 	// For leader mode: comma‑separated list of peer addresses.
 	peersStr := flag.String("peers", "", "Comma-separated list of follower peer addresses (for leader)")
+	httpHost := flag.String("httpHost", "localhost", "HTTP server host")
+	httpPort := flag.String("httpPort", "8080", "HTTP server port")
 
 	flag.Parse()
 
@@ -50,6 +47,6 @@ func main() {
 
 	mux := httpServer.NewHTTPHandler(&ps)
 
-	log.Printf("Server starting on %s:%s", HTTPHOST, HTTPPORT)
-	log.Fatal(http.ListenAndServe(HTTPHOST+":"+HTTPPORT, mux))
+	log.Printf("Server starting on %s:%s", *httpHost, *httpPort)
+	log.Fatal(http.ListenAndServe(*httpHost+":"+*httpPort, mux))
 }
