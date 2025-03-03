@@ -8,22 +8,28 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	if err := godotenv.Load(os.Getenv("ENV_FILE")); err != nil {
+		log.Fatalf("Error loading .env file: %v", err)
+	}
+	
 	// Parse command-line flags.
 	dbPath := flag.String("db", "file:data.db", "libsql database file path")
 	ip := flag.String("ip", "", "IP addresses of other instances")
-	role := peer.RoleFromString(flag.String("role", "leader", "Role: leader or follower"))
+	role := peer.RoleFromString(flag.String("role", os.Getenv("ROLE"), "Role: leader or follower"))
 
 	// peerPort for peer-to-peer messaging.
-	peerPort := flag.String("peerPort", "9000", "Port for peer communication")
+	peerPort := flag.String("peerPort", os.Getenv("PEERPORT"), "Port for peer communication")
 	// When running as a follower, leaderAddr defines where to forward writes.
 	leaderAddr := flag.String("leaderAddr", "", "Leader address for follower mode (e.g. 'localhost:9000')")
 	// For leader mode: comma‑separated list of peer addresses.
 	peersStr := flag.String("peers", "", "Comma-separated list of follower peer addresses (for leader)")
 	httpHost := flag.String("httpHost", "localhost", "HTTP server host")
-	httpPort := flag.String("httpPort", "8080", "HTTP server port")
+	httpPort := flag.String("httpPort", os.Getenv("HTTPPORT"), "HTTP server port")
 
 	flag.Parse()
 

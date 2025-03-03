@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
 import axios from 'axios';
 
+const HTTPPORT = process.env.REACT_APP_HTTPPORT; 
+
 const Home = () => {
   // State to hold form data
   const [userId, setUserId] = useState('');
@@ -22,7 +24,7 @@ const Home = () => {
 
     // POST request to push data to the server
     axios
-      .post('http://localhost:8080/objects', [object]) // Send data as an array
+      .post(`http://localhost:${HTTPPORT}/objects`, [object]) // Send data as an array
       .then((response) => {
         setResponseMessage('Data submitted successfully!');
         console.log(response.data);
@@ -36,7 +38,7 @@ const Home = () => {
   // Handle fetching objects by User ID
   const handleGetObjects = () => {
     axios
-      .get(`http://localhost:8080/objects?userId=1`)
+      .get(`http://localhost:${HTTPPORT}/objects?userId=1`)
       .then((response) => {
         setFetchedObjects(response.data);
         setResponseMessage('');
@@ -49,6 +51,7 @@ const Home = () => {
 
   return (
     <div>
+      <h1>Connected to Port {HTTPPORT}</h1>
       <h1>Submit Object</h1>
       <form onSubmit={handleSubmit}>
         <div>
