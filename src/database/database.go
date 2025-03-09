@@ -87,6 +87,25 @@ func GetObjects(DB *sql.DB, userId int) ([]StoredObject, error) {
 	return msgs, nil
 }
 
+func GetAllObjects(DB *sql.DB) ([]StoredObject, error) {
+    rows, err := DB.Query("SELECT user_id, user_message_id, data FROM objects")
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var objs []StoredObject
+    for rows.Next() {
+        var obj StoredObject
+        if err := rows.Scan(&obj.UserId, &obj.UserMessageID, &obj.Data); err != nil {
+            return nil, err
+        }
+        objs = append(objs, obj)
+    }
+    return objs, nil
+}
+
+
 func DeleteObject(DB *sql.DB, userId int, user_message_id int) (int, error) {
 	ctx := context.Background()
 	_, err := DB.ExecContext(ctx, "DELETE FROM objects WHERE user_id = ? AND user_message_id = ?", userId, user_message_id)

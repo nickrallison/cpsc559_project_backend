@@ -1,0 +1,48 @@
+
+==> Test: Insert multiple objects (userId=1)
+Insert response: {'status': 'OK'}
+SUCCESS: Inserted objects replicated to all nodes!
+
+=== After test_insert_multiple - Node States ===
+Leader (port 8080) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101'}, {'user_id': 1, 'user_message_id': 102, 'data': 'Obj102'}]
+Follower1 (port 8081) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101'}, {'user_id': 1, 'user_message_id': 102, 'data': 'Obj102'}]
+Follower2 (port 8082) objects: [{'user_id': 1, 'user_message_id': 102, 'data': 'Obj102'}, {'user_id': 1, 'user_message_id': 101, 'data': 'Obj101'}]
+
+==> Test: Update object userId=1, messageId=101
+Update response: {'status': 'OK'}
+SUCCESS: Update replicated!
+
+=== After test_update_one - Node States ===
+Leader (port 8080) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}, {'user_id': 1, 'user_message_id': 102, 'data': 'Obj102'}]
+Follower1 (port 8081) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}, {'user_id': 1, 'user_message_id': 102, 'data': 'Obj102'}]
+Follower2 (port 8082) objects: [{'user_id': 1, 'user_message_id': 102, 'data': 'Obj102'}, {'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}]
+
+==> Test: Delete object userId=1, messageId=102
+Delete response: {'status': 'OK'}
+SUCCESS: Delete replicated to all nodes!
+
+=== After test_delete - Node States ===
+Leader (port 8080) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}]
+Follower1 (port 8081) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}]
+Follower2 (port 8082) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}]
+
+==> Test: Check ordering for userId=2 (requires ORDER BY in code)
+Leader user2 objects: [{'user_id': 2, 'user_message_id': 302, 'data': 'Msg302'}, {'user_id': 2, 'user_message_id': 301, 'data': 'Msg301'}, {'user_id': 2, 'user_message_id': 303, 'data': 'Msg303'}]
+INFO: At least one node had no ORDER BY. Possibly normal if the DB query does not sort.
+
+=== After test_ordering - Node States ===
+Leader (port 8080) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}, {'user_id': 2, 'user_message_id': 302, 'data': 'Msg302'}, {'user_id': 2, 'user_message_id': 301, 'data': 'Msg301'}, {'user_id': 2, 'user_message_id': 303, 'data': 'Msg303'}]
+Follower1 (port 8081) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}, {'user_id': 2, 'user_message_id': 301, 'data': 'Msg301'}, {'user_id': 2, 'user_message_id': 302, 'data': 'Msg302'}, {'user_id': 2, 'user_message_id': 303, 'data': 'Msg303'}]
+Follower2 (port 8082) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}, {'user_id': 2, 'user_message_id': 302, 'data': 'Msg302'}, {'user_id': 2, 'user_message_id': 301, 'data': 'Msg301'}, {'user_id': 2, 'user_message_id': 303, 'data': 'Msg303'}]
+
+==> Test: Concurrency with multiple threads inserting userId=3
+Leader sees 15 objects, Follower1 sees 15, Follower2 sees 15 for userId=3
+SUCCESS: Concurrency test data on all nodes!
+
+=== After test_concurrency - Node States ===
+Leader (port 8080) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}, {'user_id': 2, 'user_message_id': 302, 'data': 'Msg302'}, {'user_id': 2, 'user_message_id': 301, 'data': 'Msg301'}, {'user_id': 2, 'user_message_id': 303, 'data': 'Msg303'}, {'user_id': 3, 'user_message_id': 1000, 'data': 'Thread1-Msg1000'}, {'user_id': 3, 'user_message_id': 2000, 'data': 'Thread2-Msg2000'}, {'user_id': 3, 'user_message_id': 0, 'data': 'Thread0-Msg0'}, {'user_id': 3, 'user_message_id': 1001, 'data': 'Thread1-Msg1001'}, {'user_id': 3, 'user_message_id': 1, 'data': 'Thread0-Msg1'}, {'user_id': 3, 'user_message_id': 2001, 'data': 'Thread2-Msg2001'}, {'user_id': 3, 'user_message_id': 1002, 'data': 'Thread1-Msg1002'}, {'user_id': 3, 'user_message_id': 2002, 'data': 'Thread2-Msg2002'}, {'user_id': 3, 'user_message_id': 2, 'data': 'Thread0-Msg2'}, {'user_id': 3, 'user_message_id': 1003, 'data': 'Thread1-Msg1003'}, {'user_id': 3, 'user_message_id': 2003, 'data': 'Thread2-Msg2003'}, {'user_id': 3, 'user_message_id': 3, 'data': 'Thread0-Msg3'}, {'user_id': 3, 'user_message_id': 4, 'data': 'Thread0-Msg4'}, {'user_id': 3, 'user_message_id': 2004, 'data': 'Thread2-Msg2004'}, {'user_id': 3, 'user_message_id': 1004, 'data': 'Thread1-Msg1004'}]
+Follower1 (port 8081) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}, {'user_id': 2, 'user_message_id': 301, 'data': 'Msg301'}, {'user_id': 2, 'user_message_id': 302, 'data': 'Msg302'}, {'user_id': 2, 'user_message_id': 303, 'data': 'Msg303'}, {'user_id': 3, 'user_message_id': 2000, 'data': 'Thread2-Msg2000'}, {'user_id': 3, 'user_message_id': 1000, 'data': 'Thread1-Msg1000'}, {'user_id': 3, 'user_message_id': 0, 'data': 'Thread0-Msg0'}, {'user_id': 3, 'user_message_id': 1001, 'data': 'Thread1-Msg1001'}, {'user_id': 3, 'user_message_id': 1, 'data': 'Thread0-Msg1'}, {'user_id': 3, 'user_message_id': 2001, 'data': 'Thread2-Msg2001'}, {'user_id': 3, 'user_message_id': 1002, 'data': 'Thread1-Msg1002'}, {'user_id': 3, 'user_message_id': 2002, 'data': 'Thread2-Msg2002'}, {'user_id': 3, 'user_message_id': 2, 'data': 'Thread0-Msg2'}, {'user_id': 3, 'user_message_id': 2003, 'data': 'Thread2-Msg2003'}, {'user_id': 3, 'user_message_id': 1003, 'data': 'Thread1-Msg1003'}, {'user_id': 3, 'user_message_id': 3, 'data': 'Thread0-Msg3'}, {'user_id': 3, 'user_message_id': 4, 'data': 'Thread0-Msg4'}, {'user_id': 3, 'user_message_id': 2004, 'data': 'Thread2-Msg2004'}, {'user_id': 3, 'user_message_id': 1004, 'data': 'Thread1-Msg1004'}]
+Follower2 (port 8082) objects: [{'user_id': 1, 'user_message_id': 101, 'data': 'Obj101-Updated'}, {'user_id': 2, 'user_message_id': 302, 'data': 'Msg302'}, {'user_id': 2, 'user_message_id': 301, 'data': 'Msg301'}, {'user_id': 2, 'user_message_id': 303, 'data': 'Msg303'}, {'user_id': 3, 'user_message_id': 1000, 'data': 'Thread1-Msg1000'}, {'user_id': 3, 'user_message_id': 2000, 'data': 'Thread2-Msg2000'}, {'user_id': 3, 'user_message_id': 0, 'data': 'Thread0-Msg0'}, {'user_id': 3, 'user_message_id': 1001, 'data': 'Thread1-Msg1001'}, {'user_id': 3, 'user_message_id': 1, 'data': 'Thread0-Msg1'}, {'user_id': 3, 'user_message_id': 2001, 'data': 'Thread2-Msg2001'}, {'user_id': 3, 'user_message_id': 1002, 'data': 'Thread1-Msg1002'}, {'user_id': 3, 'user_message_id': 2002, 'data': 'Thread2-Msg2002'}, {'user_id': 3, 'user_message_id': 2, 'data': 'Thread0-Msg2'}, {'user_id': 3, 'user_message_id': 2003, 'data': 'Thread2-Msg2003'}, {'user_id': 3, 'user_message_id': 1003, 'data': 'Thread1-Msg1003'}, {'user_id': 3, 'user_message_id': 3, 'data': 'Thread0-Msg3'}, {'user_id': 3, 'user_message_id': 4, 'data': 'Thread0-Msg4'}, {'user_id': 3, 'user_message_id': 2004, 'data': 'Thread2-Msg2004'}, {'user_id': 3, 'user_message_id': 1004, 'data': 'Thread1-Msg1004'}]
+
+=== All tests completed successfully! ===
+Cleaned up processes.

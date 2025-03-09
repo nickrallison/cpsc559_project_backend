@@ -138,6 +138,11 @@ func (ps *PeerServer) handleGetObject(conn net.Conn, pm PeerMessage) {
 	}
 }
 
+// get all objects from the database without filtering
+func (ps *PeerServer) GetAllObjects() ([]database.StoredObject, error) {
+    return database.GetAllObjects(ps.DB)
+}
+
 // handleStoreObject processes a StoreObject request.
 func (ps *PeerServer) handleStoreObject(conn net.Conn, pm PeerMessage) {
 	enc := json.NewEncoder(conn)

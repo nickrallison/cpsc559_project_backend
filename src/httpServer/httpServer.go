@@ -38,6 +38,14 @@ func NewHTTPHandler(ps *peer.PeerServer) http.Handler {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})).ServeHTTP)
+		// Handle /allObjects to get everything in the database
+		mux.HandleFunc("/allObjects", corsHandler.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				GetAllObjectsHandler(w, ps)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})).ServeHTTP)
 
 	return mux
 }
@@ -83,6 +91,22 @@ func GetObjectsHandler(w http.ResponseWriter, r *http.Request, ps *peer.PeerServ
 		}
 	}
 }
+
+// GetAllObjectsHandler retrieves all objects from the database
+func GetAllObjectsHandler(w http.ResponseWriter, ps *peer.PeerServer) {
+    objs, err := ps.GetAllObjects()
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    w.Header().Set("Content-Type", "application/json")
+    if err := json.NewEncoder(w).Encode(objs); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+}
+
 
 // postObjectHandler handles POST requests.
 func postObjectHandler(w http.ResponseWriter, r *http.Request, ps *peer.PeerServer) {
