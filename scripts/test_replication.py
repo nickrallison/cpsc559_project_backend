@@ -8,7 +8,6 @@ import subprocess
 import time
 import requests
 import os
-import sys
 import threading
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -58,41 +57,44 @@ def post_objects(port, objects):
     return resp.json()
 
 def put_object(port, obj):
+    existing_obj = get_object(port, obj["user_id"], obj["user_message_id"])
+    obj["sequence_number"] = existing_obj["sequence_number"] + 1
     url = f"http://localhost:{port}/objects"
     resp = requests.put(url, json=obj)
     resp.raise_for_status()
     return resp.json()
 
 def delete_object(port, user_id, user_message_id):
-    url = f"http://localhost:{port}/objects?userId={user_id}&userMessageId={user_message_id}"
+    obj = get_object(port, user_id, user_message_id)
+    sequence_number = obj["sequence_number"]
+    url = f"http://localhost:{port}/objects?userId={user_id}&userMessageId={user_message_id}&sequenceNumber={sequence_number}"
     resp = requests.delete(url)
     resp.raise_for_status()
     return resp.json()
 
-def get_objects(port, user_id, user_message_id=None):
-    base_url = f"http://localhost:{port}/objects?userId={user_id}"
-    if user_message_id is not None:
-        base_url += f"&userMessageId={user_message_id}"
-    resp = requests.get(base_url)
+def get_object(port, user_id, user_message_id):
+    objs = get_objects(port, user_id)
+    for obj in objs:
+        if obj["user_message_id"] == user_message_id:
+            return obj
+    raise Exception(f"Object with userId={user_id} and messageId={user_message_id} not found.")
+
+def get_objects(port, user_id):
+    url = f"http://localhost:{port}/objects?userId={user_id}"
+    resp = requests.get(url)
     resp.raise_for_status()
     return resp.json()
 
 def get_all_objects(port):
-    """
-    GET /allObjects from the node to see every record in that DB.
-    Your Go code must have the /allObjects handler for this to work.
-    """
     url = f"http://localhost:{port}/allObjects"
     resp = requests.get(url)
     resp.raise_for_status()
     return resp.json()
 
-
 ###############################################################
 # Logging
 ###############################################################
 def log_and_print(message, fh):
-    """Print to console and also write to the log file."""
     print(message)
     fh.write(message + "\n")
 
@@ -113,17 +115,15 @@ def log_node_states(fh, label):
         except Exception as e:
             log_and_print(f"{name} (port {port}) error retrieving /allObjects: {e}", fh)
 
+def check_sequence_order(objs):
+    seq_numbers = [obj["sequence_number"] for obj in objs]
+    return seq_numbers == sorted(seq_numbers)
 
 ###############################################################
 # Process Management
 ###############################################################
 def run_go_instance(command_args):
-    return subprocess.Popen(
-        command_args,
-        cwd=ROOT_DIR,
-        stdout=None,
-        stderr=None
-    )
+    return subprocess.Popen(command_args, cwd=ROOT_DIR)
 
 def cleanup(processes):
     for proc in processes:
@@ -137,7 +137,6 @@ def cleanup(processes):
 def wait_for_startup(seconds=5):
     print(f"Waiting {seconds}s for servers to start...")
     time.sleep(seconds)
-
 
 ###############################################################
 # Test Steps
@@ -163,7 +162,6 @@ def test_insert_multiple(fh):
 
     # Snapshot DB states
     log_node_states(fh, "After test_insert_multiple")
-
 
 def test_update_one(fh):
     log_and_print("\n==> Test: Update object userId=1, messageId=101", fh)
@@ -195,7 +193,6 @@ def test_update_one(fh):
     # Snapshot
     log_node_states(fh, "After test_update_one")
 
-
 def test_delete(fh):
     log_and_print("\n==> Test: Delete object userId=1, messageId=102", fh)
     resp = delete_object(LEADER_HTTP_PORT, 1, 102)
@@ -217,44 +214,9 @@ def test_delete(fh):
 
     log_node_states(fh, "After test_delete")
 
-
-def test_ordering(fh):
-    log_and_print("\n==> Test: Check ordering for userId=2 (requires ORDER BY in code)", fh)
-    # Insert out of order
-    inserts = [
-        {"user_id": 2, "user_message_id": 302, "data": "Msg302"},
-        {"user_id": 2, "user_message_id": 301, "data": "Msg301"},
-        {"user_id": 2, "user_message_id": 303, "data": "Msg303"},
-    ]
-    post_objects(LEADER_HTTP_PORT, inserts)
-    time.sleep(1)
-
-    # Check
-    l_objs = get_objects(LEADER_HTTP_PORT, 2)
-    f1_objs = get_objects(FOLLOWER1_HTTP_PORT, 2)
-    f2_objs = get_objects(FOLLOWER2_HTTP_PORT, 2)
-
-    def is_ascending(objs):
-        ids = [o["user_message_id"] for o in objs]
-        return all(ids[i] <= ids[i+1] for i in range(len(ids)-1))
-
-    ok_leader = is_ascending(l_objs)
-    ok_f1 = is_ascending(f1_objs)
-    ok_f2 = is_ascending(f2_objs)
-
-    log_and_print(f"Leader user2 objects: {l_objs}", fh)
-    if ok_leader and ok_f1 and ok_f2:
-        log_and_print("SUCCESS: All nodes returned user2 objects in ascending order.", fh)
-    else:
-        log_and_print("INFO: At least one node had no ORDER BY. Possibly normal if the DB query does not sort.", fh)
-
-    log_node_states(fh, "After test_ordering")
-
-
 def concurrency_thread_func(thread_id, n_inserts):
-    base = thread_id * 1000
     for i in range(n_inserts):
-        msg_id = base + i
+        msg_id = thread_id * 1000 + i
         obj = [{"user_id": 3, "user_message_id": msg_id, "data": f"Thread{thread_id}-Msg{msg_id}"}]
         post_objects(LEADER_HTTP_PORT, obj)
 
@@ -292,6 +254,13 @@ def test_concurrency(fh):
 
     log_node_states(fh, "After test_concurrency")
 
+def test_sequence_replication(fh):
+    objs = get_all_objects(LEADER_HTTP_PORT)
+    if check_sequence_order(objs):
+        log_and_print("SUCCESS: Leader objects are in correct sequence order.", fh)
+    else:
+        log_and_print("FAILURE: Leader objects are NOT in correct sequence order.", fh)
+    log_node_states(fh, "After test_sequence_replication")
 
 ###############################################################
 # Main
@@ -319,8 +288,8 @@ def main():
             test_insert_multiple(fh)
             test_update_one(fh)
             test_delete(fh)
-            test_ordering(fh)
             test_concurrency(fh)
+            test_sequence_replication(fh)
 
             log_and_print("\n=== All tests completed successfully! ===", fh)
 

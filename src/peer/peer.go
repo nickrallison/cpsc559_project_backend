@@ -135,7 +135,7 @@ func (ps *PeerServer) handleGetObject(conn net.Conn, pm PeerMessage) {
 	enc := json.NewEncoder(conn)
 	if pm.Data.UserMessageID != 0 {
 		// Return a single object.
-		row := ps.DB.QueryRow("SELECT user_id, user_message_id, data FROM objects WHERE user_id = ? AND user_message_id = ?",
+		row := ps.DB.QueryRow("SELECT user_id, user_message_id, data FROM objects WHERE user_id = ? AND user_message_id = ? ORDER BY sequence_number ASC",
 			pm.Data.UserId, pm.Data.UserMessageID)
 		var obj database.StoredObject
 		if err := row.Scan(&obj.UserId, &obj.UserMessageID, &obj.Data); err != nil {
@@ -297,7 +297,7 @@ func (ps *PeerServer) handleDeleteObject(conn net.Conn, pm PeerMessage) {
 		}
 	} else if ps.Role == Follower {
 		if pm.Metadata.Sender == ps.LeaderAddr {
-			// Delete command coming from the leader: apply it locally.
+			// Attempt to delete the object without considering the sequence number on follower.
 			if _, err := database.DeleteObject(ps.DB, pm.Data.UserId, pm.Data.UserMessageID); err != nil {
 				log.Printf("Follower failed to delete object (from leader): %v", err)
 				enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
@@ -320,6 +320,34 @@ func (ps *PeerServer) handleDeleteObject(conn net.Conn, pm PeerMessage) {
 			}
 		}
 	}
+}
+
+func (ps *PeerServer) DeleteObjectWithSeq(userId int, userMessageId int, sequenceNumber int64) (map[string]string, error) {
+	if ps.Role == Leader {
+		// Perform deletion with the given sequence number
+		if _, err := database.DeleteObjectWithSeq(ps.DB, userId, userMessageId, sequenceNumber); err != nil {
+			return nil, err
+		}
+
+		// Notify followers
+		for _, addr := range ps.knownPeers {
+			go func(peerAddr string) {
+				pm := PeerMessage{
+					Type: DeleteObject,
+					Data: database.StoredObject{
+						UserId:        userId,
+						UserMessageID: userMessageId,
+						SequenceNumber: sequenceNumber,
+					},
+				}
+				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
+					log.Printf("Leader failed to push delete to follower %s: %v", peerAddr, err)
+				}
+			}(addr)
+		}
+		return map[string]string{"status": "OK"}, nil
+	}
+	return nil, fmt.Errorf("delete not allowed for followers")
 }
 
 // pushUpdateToPeer is used by the leader to send write updates to a follower.
@@ -377,7 +405,7 @@ func (ps *PeerServer) GetObjects(userId int) ([]database.StoredObject, error) {
 
 // GetObject returns a single object (with the given message id) by reading locally.
 func (ps *PeerServer) GetObject(userId, userMessageId int) (database.StoredObject, error) {
-	row := ps.DB.QueryRow("SELECT user_id, user_message_id, data FROM objects WHERE user_id = ? AND user_message_id = ?", userId, userMessageId)
+	row := ps.DB.QueryRow("SELECT user_id, user_message_id, data FROM objects WHERE user_id = ? AND user_message_id = ? ORDER BY sequence_number ASC", userId, userMessageId)
 	var obj database.StoredObject
 	err := row.Scan(&obj.UserId, &obj.UserMessageID, &obj.Data)
 	return obj, err

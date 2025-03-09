@@ -172,6 +172,7 @@ func deleteObjectHandler(w http.ResponseWriter, r *http.Request, ps *peer.PeerSe
 		http.Error(w, "invalid userId parameter", http.StatusBadRequest)
 		return
 	}
+
 	userMessageIdParam := r.URL.Query().Get("userMessageId")
 	userMessageId, err := strconv.Atoi(userMessageIdParam)
 	if err != nil {
@@ -179,7 +180,24 @@ func deleteObjectHandler(w http.ResponseWriter, r *http.Request, ps *peer.PeerSe
 		return
 	}
 
-	resp, err := ps.DeleteObject(userId, userMessageId)
+	// Optional: Handle the sequence number if provided in the request
+	seqNumParam := r.URL.Query().Get("sequenceNumber")
+	var sequenceNumber int64
+	if seqNumParam != "" {
+		sequenceNumber, err = strconv.ParseInt(seqNumParam, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid sequenceNumber parameter", http.StatusBadRequest)
+			return
+		}
+	} else {
+		// Automatically assign the next sequence number if not provided
+		ps.OpMutex.Lock()
+		sequenceNumber = ps.NextSequenceID
+		ps.NextSequenceID++
+		ps.OpMutex.Unlock()
+	}
+
+	resp, err := ps.DeleteObjectWithSeq(userId, userMessageId, sequenceNumber)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
