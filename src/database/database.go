@@ -13,7 +13,7 @@ type StoredObject struct {
 	UserId        int    `json:"user_id"`
 	UserMessageID int    `json:"user_message_id"`
 	Data          string `json:"data"`
-	SequenceNumber int64  `json:"sequence_number"` // new
+	SequenceNumber int64  `json:"sequence_number"`
 }
 
 func InitDB(dbPath string) (*sql.DB, error) {

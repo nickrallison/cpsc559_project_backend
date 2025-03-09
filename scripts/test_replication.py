@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-Step-by-step test script for your leader-follower distributed system.
-Ensures each run starts with fresh DB files so the logs match the actual step order.
-"""
-
 import subprocess
 import time
 import requests

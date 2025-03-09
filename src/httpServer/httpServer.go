@@ -180,7 +180,7 @@ func deleteObjectHandler(w http.ResponseWriter, r *http.Request, ps *peer.PeerSe
 		return
 	}
 
-	// Optional: Handle the sequence number if provided in the request
+	// Handle the sequence number if provided in the request
 	seqNumParam := r.URL.Query().Get("sequenceNumber")
 	var sequenceNumber int64
 	if seqNumParam != "" {
