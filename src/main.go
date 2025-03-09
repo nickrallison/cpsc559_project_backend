@@ -46,7 +46,7 @@ func main() {
     log.Printf("httpPort: %s", *httpPort)
 
     // Initialize the database
-    err, DB := database.InitDB(*dbPath)
+    DB, err := database.InitDB(*dbPath)
     if err != nil {
         log.Fatalf("InitDB error: %v", err)
     }
@@ -58,7 +58,7 @@ func main() {
     defer ps.Stop()
 
     // Create the HTTP server mux using our custom handlers
-    mux := httpServer.NewHTTPHandler(&ps)
+    mux := httpServer.NewHTTPHandler(ps)
 
     // Start serving HTTP
     log.Printf("Server starting on %s:%s", *httpHost, *httpPort)

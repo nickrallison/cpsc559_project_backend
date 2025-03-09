@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 )
 
 // Role defines a constant type for peer roles.
@@ -36,17 +37,19 @@ func RoleFromString(s *string) Role {
 
 // PeerServer defines an instance of a peer (leader or follower).
 type PeerServer struct {
-	Role       Role         // Leader or Follower
-	PeerAddr   string       // e.g. "localhost:9000"
-	LeaderAddr string       // If follower, the leader’s address
-	DB         *sql.DB      // Local database handle
-	knownPeers []string     // For leader: a list of follower peer addresses
-	listener   net.Listener // the TCP listener so we can stop the server
+	Role       			Role         // Leader or Follower
+	PeerAddr   			string       // e.g. "localhost:9000"
+	LeaderAddr 			string       // If follower, the leader’s address
+	DB         			*sql.DB      // Local database handle
+	knownPeers 			[]string     // For leader: a list of follower peer addresses
+	listener   			net.Listener // the TCP listener so we can stop the server
+	OpMutex     		sync.Mutex   // Mutex to guard sequence generation
+	NextSequenceID 		int64        // Next sequence number for operations
 }
 
 // NewPeerServer creates and returns a new instance.
-func NewPeerServer(role Role, port, leaderAddr, peers string, db *sql.DB) PeerServer {
-	ps := PeerServer{
+func NewPeerServer(role Role, port, leaderAddr, peers string, db *sql.DB) *PeerServer {
+	ps := &PeerServer{
 		Role:       role,
 		PeerAddr:   "localhost:" + port,
 		LeaderAddr: leaderAddr,
@@ -55,7 +58,24 @@ func NewPeerServer(role Role, port, leaderAddr, peers string, db *sql.DB) PeerSe
 	if role == Leader && peers != "" {
 		ps.knownPeers = strings.Split(peers, ",")
 	}
+	// Ensure leader initializes NextSequenceID correctly
+	if role == Leader {
+		ps.NextSequenceID = getNextSequenceID(db)
+		log.Printf("Leader initialized with sequence number starting at %d", ps.NextSequenceID)
+	}
 	return ps
+}
+func getNextSequenceID(db *sql.DB) int64 {
+	var maxSeq sql.NullInt64
+	err := db.QueryRow("SELECT MAX(sequence_number) FROM objects").Scan(&maxSeq)
+	if err != nil {
+		log.Printf("Failed to fetch max sequence number: %v", err)
+		return 1 // Default to 1 if the table is empty or query fails
+	}
+	if maxSeq.Valid {
+		return maxSeq.Int64 + 1
+	}
+	return 1 // If no sequence numbers exist, start from 1
 }
 
 // Start begins listening for incoming peer messages.
@@ -146,12 +166,23 @@ func (ps *PeerServer) GetAllObjects() ([]database.StoredObject, error) {
 // handleStoreObject processes a StoreObject request.
 func (ps *PeerServer) handleStoreObject(conn net.Conn, pm PeerMessage) {
 	enc := json.NewEncoder(conn)
+
 	if ps.Role == Leader {
-		// Leader stores the object.
-		if _, err := database.InsertObject(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data); err != nil {
-			log.Printf("Leader failed to store object: %v", err)
+		// Assign sequence number with thread safety.
+		ps.OpMutex.Lock()
+		if ps.NextSequenceID == 0 { 
+			ps.NextSequenceID = getNextSequenceID(ps.DB) 
 		}
-		// Then push the update to all known followers.
+		pm.Data.SequenceNumber = ps.NextSequenceID
+		ps.NextSequenceID++
+		ps.OpMutex.Unlock()
+
+		// Store with sequence number.
+		if _, err := database.InsertObjectWithSeq(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data, pm.Data.SequenceNumber); err != nil {
+			log.Printf("Leader failed to store object: %v", err)
+		}		
+
+		// Push update to all followers.
 		for _, addr := range ps.knownPeers {
 			go func(peerAddr string) {
 				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
@@ -159,35 +190,32 @@ func (ps *PeerServer) handleStoreObject(conn net.Conn, pm PeerMessage) {
 				}
 			}(addr)
 		}
+
 		// Send OK response.
 		resp := map[string]string{"status": "OK"}
 		if err := enc.Encode(resp); err != nil {
 			log.Printf("Error encoding response in StoreObject (leader): %v", err)
 		}
+
 	} else if ps.Role == Follower {
-		// When acting as follower, check whether the request came from the leader.
 		if pm.Metadata.Sender == ps.LeaderAddr {
-			// This update is coming from the leader; apply the update locally.
-			if _, err := database.InsertObject(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data); err != nil {
+			// Apply update with leader's sequence number.
+			if _, err := database.InsertObjectWithSeq(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data, pm.Data.SequenceNumber); err != nil {
 				log.Printf("Follower failed to store object (from leader): %v", err)
 				enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
 				return
 			}
 			resp := map[string]string{"status": "OK"}
-			if err := enc.Encode(resp); err != nil {
-				log.Printf("Error encoding response in StoreObject (follower applying update): %v", err)
-			}
+			_ = enc.Encode(resp)
 		} else {
-			// Forward the store request to the leader.
+			// Forward to leader.
 			respMap, err := ps.ForwardRequestToLeader(pm)
 			if err != nil {
 				log.Printf("Follower failed to forward store to leader: %v", err)
 				enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
 				return
 			}
-			if err := enc.Encode(respMap); err != nil {
-				log.Printf("Error encoding response in StoreObject (follower forwarding): %v", err)
-			}
+			_ = enc.Encode(respMap)
 		}
 	}
 }
@@ -195,10 +223,20 @@ func (ps *PeerServer) handleStoreObject(conn net.Conn, pm PeerMessage) {
 // handleUpdateObject processes an UpdateObject request.
 func (ps *PeerServer) handleUpdateObject(conn net.Conn, pm PeerMessage) {
 	enc := json.NewEncoder(conn)
+
 	if ps.Role == Leader {
-		if _, err := database.UpdateObjects(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data); err != nil {
+		ps.OpMutex.Lock()
+		if ps.NextSequenceID == 0 {
+			ps.NextSequenceID = getNextSequenceID(ps.DB)
+		}
+		pm.Data.SequenceNumber = ps.NextSequenceID
+		ps.NextSequenceID++
+		ps.OpMutex.Unlock()
+
+		if err := database.UpdateObjectWithSeq(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data, pm.Data.SequenceNumber); err != nil {
 			log.Printf("Leader failed to update object: %v", err)
 		}
+
 		for _, addr := range ps.knownPeers {
 			go func(peerAddr string) {
 				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
@@ -206,42 +244,44 @@ func (ps *PeerServer) handleUpdateObject(conn net.Conn, pm PeerMessage) {
 				}
 			}(addr)
 		}
+
 		resp := map[string]string{"status": "OK"}
-		if err := enc.Encode(resp); err != nil {
-			log.Printf("Error encoding response in UpdateObject (leader): %v", err)
-		}
+		_ = enc.Encode(resp)
+
 	} else if ps.Role == Follower {
 		if pm.Metadata.Sender == ps.LeaderAddr {
-			// Update coming directly from the leader; apply locally.
-			if _, err := database.UpdateObjects(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data); err != nil {
+			if err := database.UpdateObjectWithSeq(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data, pm.Data.SequenceNumber); err != nil {
 				log.Printf("Follower failed to update object (from leader): %v", err)
 				enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
 				return
 			}
 			resp := map[string]string{"status": "OK"}
-			if err := enc.Encode(resp); err != nil {
-				log.Printf("Error encoding response in UpdateObject (follower applying update): %v", err)
-			}
+			_ = enc.Encode(resp)
 		} else {
-			// Forward the update request to the leader.
 			respMap, err := ps.ForwardRequestToLeader(pm)
 			if err != nil {
 				log.Printf("Follower failed to forward update to leader: %v", err)
 				enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
 				return
 			}
-			if err := enc.Encode(respMap); err != nil {
-				log.Printf("Error encoding response in UpdateObject (follower forwarding): %v", err)
-			}
+			_ = enc.Encode(respMap)
 		}
 	}
 }
 
+
 // handleDeleteObject processes a DeleteObject request.
 func (ps *PeerServer) handleDeleteObject(conn net.Conn, pm PeerMessage) {
 	enc := json.NewEncoder(conn)
+	ps.OpMutex.Lock()
+	if ps.NextSequenceID == 0 {
+		ps.NextSequenceID = getNextSequenceID(ps.DB)
+	}
+	pm.Data.SequenceNumber = ps.NextSequenceID
+	ps.NextSequenceID++
+	ps.OpMutex.Unlock()
 	if ps.Role == Leader {
-		if _, err := database.DeleteObject(ps.DB, pm.Data.UserId, pm.Data.UserMessageID); err != nil {
+		if _, err := database.DeleteObjectWithSeq(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.SequenceNumber); err != nil {
 			log.Printf("Leader failed to delete object: %v", err)
 		}
 		for _, addr := range ps.knownPeers {
@@ -359,7 +399,12 @@ func (ps *PeerServer) StoreObjects(objs []database.StoredObject) (map[string]str
 		return lastResp, nil
 	} else if ps.Role == Leader {
 		for _, obj := range objs {
-			if _, err := database.InsertObject(ps.DB, obj.UserId, obj.UserMessageID, obj.Data); err != nil {
+			ps.OpMutex.Lock()
+			obj.SequenceNumber = ps.NextSequenceID
+			ps.NextSequenceID++
+			ps.OpMutex.Unlock()
+	
+			if _, err := database.InsertObjectWithSeq(ps.DB, obj.UserId, obj.UserMessageID, obj.Data, obj.SequenceNumber); err != nil {
 				return nil, err
 			}
 			for _, addr := range ps.knownPeers {
@@ -382,9 +427,15 @@ func (ps *PeerServer) UpdateObject(obj database.StoredObject) (map[string]string
 	if ps.Role == Follower {
 		return ps.ForwardRequestToLeader(pm)
 	} else if ps.Role == Leader {
-		if _, err := database.UpdateObjects(ps.DB, obj.UserId, obj.UserMessageID, obj.Data); err != nil {
+		ps.OpMutex.Lock()
+		obj.SequenceNumber = ps.NextSequenceID
+		ps.NextSequenceID++
+		ps.OpMutex.Unlock()
+
+		if err := database.UpdateObjectWithSeq(ps.DB, obj.UserId, obj.UserMessageID, obj.Data, obj.SequenceNumber); err != nil {
 			return nil, err
 		}
+
 		for _, addr := range ps.knownPeers {
 			go func(peerAddr string, o database.StoredObject) {
 				pm := PeerMessage{Type: UpdateObject, Data: o}
@@ -400,20 +451,26 @@ func (ps *PeerServer) UpdateObject(obj database.StoredObject) (map[string]string
 
 // DeleteObject deletes an object.
 func (ps *PeerServer) DeleteObject(userId int, userMessageId int) (map[string]string, error) {
-	pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId}}
-	if ps.Role == Follower {
-		return ps.ForwardRequestToLeader(pm)
-	} else if ps.Role == Leader {
-		if _, err := database.DeleteObject(ps.DB, userId, userMessageId); err != nil {
+	//pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId}}
+	if ps.Role == Leader {
+		ps.OpMutex.Lock()
+		seqNum := ps.NextSequenceID
+		ps.NextSequenceID++
+		ps.OpMutex.Unlock()
+	
+		if _, err := database.DeleteObjectWithSeq(ps.DB, userId, userMessageId, seqNum); err != nil {
 			return nil, err
 		}
 		for _, addr := range ps.knownPeers {
-			go func(peerAddr string, uid, umid int) {
-				pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: uid, UserMessageID: umid}}
+			go func(peerAddr string) {
+				pm := PeerMessage{
+					Type: DeleteObject,
+					Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId, SequenceNumber: seqNum},
+				}
 				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
 					log.Printf("Leader failed to push delete to follower %s: %v", peerAddr, err)
 				}
-			}(addr, userId, userMessageId)
+			}(addr)
 		}
 		return map[string]string{"status": "OK"}, nil
 	}

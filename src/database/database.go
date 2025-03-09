@@ -13,17 +13,18 @@ type StoredObject struct {
 	UserId        int    `json:"user_id"`
 	UserMessageID int    `json:"user_message_id"`
 	Data          string `json:"data"`
+	SequenceNumber int64  `json:"sequence_number"` // new
 }
 
-func InitDB(dbPath string) (error, *sql.DB) {
+func InitDB(dbPath string) (*sql.DB, error) {
 	DB, err := sql.Open("libsql", dbPath+"?_busy_timeout=5000")
 	DB.SetMaxOpenConns(1)
 	if err != nil {
-		return fmt.Errorf("failed to open db %s: %v", dbPath, err), nil
+		return nil, fmt.Errorf("failed to open db %s: %v", dbPath, err)
 	}
 	ctx := context.Background()
 	if err = DB.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping db: %v", err), nil
+		return nil, fmt.Errorf("failed to ping db: %v", err)
 	}
 	createStmt := `
         CREATE TABLE IF NOT EXISTS objects (
@@ -31,13 +32,14 @@ func InitDB(dbPath string) (error, *sql.DB) {
             user_id INTEGER,
             user_message_id INTEGER,
             data TEXT NOT NULL,
+			sequence_number INTEGER NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     `
 	if _, err = DB.ExecContext(ctx, createStmt); err != nil {
-		return fmt.Errorf("failed to create objects table: %v", err), nil
+		return nil, fmt.Errorf("failed to create objects table: %v", err)
 	}
-	return nil, DB
+	return DB, nil
 }
 
 func ClearDB(dbPath string) error {
@@ -68,9 +70,18 @@ func InsertObject(DB *sql.DB, userId int, user_message_id int, data string) (int
 	return 1, nil
 }
 
+func InsertObjectWithSeq(db *sql.DB, userId int, userMsgId int, data string, seq int64) (int, error) {
+    _, err := db.Exec("INSERT INTO objects (user_id, user_message_id, data, sequence_number) VALUES (?, ?, ?, ?)",
+        userId, userMsgId, data, seq)
+    if err != nil {
+        return 0, err
+    }
+    return 1, nil
+}
+
 func GetObjects(DB *sql.DB, userId int) ([]StoredObject, error) {
 	ctx := context.Background()
-	rows, err := DB.QueryContext(ctx, "SELECT user_id, user_message_id, data FROM objects WHERE user_id = ?", userId)
+	rows, err := DB.QueryContext(ctx, "SELECT user_id, user_message_id, data, sequence_number FROM objects WHERE user_id = ? ORDER BY sequence_number ASC", userId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query objects: %v", err)
 	}
@@ -79,7 +90,7 @@ func GetObjects(DB *sql.DB, userId int) ([]StoredObject, error) {
 	msgs := []StoredObject{}
 	for rows.Next() {
 		var msg StoredObject
-		if err := rows.Scan(&msg.UserId, &msg.UserMessageID, &msg.Data); err != nil {
+		if err := rows.Scan(&msg.UserId, &msg.UserMessageID, &msg.Data, &msg.SequenceNumber); err != nil {
 			return nil, fmt.Errorf("failed to scan object: %v", err)
 		}
 		msgs = append(msgs, msg)
@@ -88,7 +99,7 @@ func GetObjects(DB *sql.DB, userId int) ([]StoredObject, error) {
 }
 
 func GetAllObjects(DB *sql.DB) ([]StoredObject, error) {
-    rows, err := DB.Query("SELECT user_id, user_message_id, data FROM objects")
+    rows, err := DB.Query("SELECT user_id, user_message_id, data, sequence_number FROM objects ORDER BY sequence_number ASC")
     if err != nil {
         return nil, err
     }
@@ -97,7 +108,7 @@ func GetAllObjects(DB *sql.DB) ([]StoredObject, error) {
     var objs []StoredObject
     for rows.Next() {
         var obj StoredObject
-        if err := rows.Scan(&obj.UserId, &obj.UserMessageID, &obj.Data); err != nil {
+        if err := rows.Scan(&obj.UserId, &obj.UserMessageID, &obj.Data, &obj.SequenceNumber); err != nil {
             return nil, err
         }
         objs = append(objs, obj)
@@ -115,6 +126,27 @@ func DeleteObject(DB *sql.DB, userId int, user_message_id int) (int, error) {
 	return 1, nil
 }
 
+func DeleteObjectWithSeq(DB *sql.DB, userId int, userMessageId int, seq int64) (int, error) {
+	ctx := context.Background()
+	result, err := DB.ExecContext(ctx, `
+		DELETE FROM objects
+		WHERE user_id = ? AND user_message_id = ? AND sequence_number = ?`, userId, userMessageId, seq)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete object with sequence: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %v", err)
+	}
+
+	if rowsAffected == 0 {
+		return 0, fmt.Errorf("no rows found for deletion with sequence number %d", seq)
+	}
+
+	return int(rowsAffected), nil
+}
+
 func UpdateObjects(DB *sql.DB, userId int, user_message_id int, data string) (int, error) {
 	ctx := context.Background()
 	_, err := DB.ExecContext(ctx, "UPDATE objects SET data = ? WHERE user_id = ? AND user_message_id = ?", data, userId, user_message_id)
@@ -123,3 +155,11 @@ func UpdateObjects(DB *sql.DB, userId int, user_message_id int, data string) (in
 	}
 	return 1, nil
 }
+
+func UpdateObjectWithSeq(db *sql.DB, userId int, userMsgId int, data string, seq int64) error {
+	_, err := db.Exec(`
+		UPDATE objects SET data = ?, sequence_number = ?
+		WHERE user_id = ? AND user_message_id = ?`, data, seq, userId, userMsgId)
+	return err
+}
+
