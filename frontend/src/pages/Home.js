@@ -22,6 +22,7 @@ const Home = () => {
       data: data,
     };
 
+    console.log(`http://localhost:${HTTPPORT}/objects`)
     // POST request to push data to the server
     axios
       .post(`http://localhost:${HTTPPORT}/objects`, [object]) // Send data as an array
@@ -37,6 +38,7 @@ const Home = () => {
 
   // Handle fetching objects by User ID
   const handleGetObjects = () => {
+    console.log(`http://localhost:${HTTPPORT}/objects?userId=1`)
     axios
       .get(`http://localhost:${HTTPPORT}/objects?userId=1`)
       .then((response) => {
