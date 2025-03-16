@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"strings"
-	"os"
 )
 
 // Role defines a constant type for peer roles.
@@ -46,10 +45,11 @@ type PeerServer struct {
 }
 
 // NewPeerServer creates and returns a new instance.
-func NewPeerServer(role Role, port, leaderAddr, peers string, db *sql.DB) PeerServer {
+func NewPeerServer(role Role, port, addr string, leaderAddr, peers string, db *sql.DB) PeerServer {
 	ps := PeerServer{
-		Role:       role,
-		PeerAddr:   os.Getenv("MYOWN") + port, //your own machine's api from tailscale
+		Role: role,
+		//PeerAddr:   os.Getenv("MYOWN") + port, //your own machine's api from tailscale
+		PeerAddr:   addr + ":" + port, //your own machine's api from tailscale
 		LeaderAddr: leaderAddr,
 		DB:         db,
 	}

@@ -30,7 +30,7 @@ func TestPeerRead(t *testing.T) {
 	}
 
 	// Create and start a follower peer server.
-	ps := NewPeerServer(Follower, "9100", "", "", db)
+	ps := NewPeerServer(Follower, "9100", "localhost", "", "", db)
 	ps.Start()
 	t.Cleanup(func() { ps.Stop() })
 
@@ -88,12 +88,12 @@ func TestPeerWriteForwarding(t *testing.T) {
 	})
 
 	// Start the leader peer server on port 9200 with known follower "localhost:9201".
-	leader := NewPeerServer(Leader, "9200", "", "localhost:9201", leaderDB)
+	leader := NewPeerServer(Leader, "9200", "localhost", "", "localhost:9201", leaderDB)
 	leader.Start()
 	t.Cleanup(func() { leader.Stop() })
 
 	// Start the follower peer server on port 9201 with its leader address set to "localhost:9200".
-	follower := NewPeerServer(Follower, "9201", "localhost:9200", "", followerDB)
+	follower := NewPeerServer(Follower, "9201", "localhost", "localhost:9200", "", followerDB)
 	follower.Start()
 	t.Cleanup(func() { follower.Stop() })
 

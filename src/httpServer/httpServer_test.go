@@ -42,9 +42,9 @@ func setupHTTPServers(t *testing.T) (leaderURL, followerURL string, cleanup func
 	leaderPort := "9205"
 	followerPort := "9206"
 
-	leaderPS := peer.NewPeerServer(peer.Leader, leaderPort, "", "localhost:"+followerPort, leaderDB)
+	leaderPS := peer.NewPeerServer(peer.Leader, leaderPort, "localhost", "", "localhost:"+followerPort, leaderDB)
 	leaderPS.Start()
-	followerPS := peer.NewPeerServer(peer.Follower, followerPort, "localhost:"+leaderPort, "", followerDB)
+	followerPS := peer.NewPeerServer(peer.Follower, followerPort, "localhost", "localhost:"+leaderPort, "", followerDB)
 	followerPS.Start()
 
 	leaderHandler := startHTTPHandlerForPeer(&leaderPS)
