@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# This only tests order in which the updates are applied only on one single node. It sends the request directly to the peer port of the "follower"
+# since the metadata points to the leader's address, the peer assumes that it is already coming in from the leader, therefore, this script won't trigger any actions on the leader side/
+# make sure only "follower" is running on port 8081
 import random
 import string
 import time
