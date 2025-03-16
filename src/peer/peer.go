@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"os"
 )
 
 // Role defines a constant type for peer roles.
@@ -48,7 +49,7 @@ type PeerServer struct {
 func NewPeerServer(role Role, port, leaderAddr, peers string, db *sql.DB) PeerServer {
 	ps := PeerServer{
 		Role:       role,
-		PeerAddr:   "localhost:" + port,
+		PeerAddr:   os.Getenv("MYOWN") + port, //your own machine's api from tailscale
 		LeaderAddr: leaderAddr,
 		DB:         db,
 	}
