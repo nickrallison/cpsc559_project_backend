@@ -391,19 +391,20 @@ func (ps *PeerServer) StoreObjects(objs []database.StoredObject) (map[string]str
 	} else if ps.Role == Leader {
 		for _, obj := range objs {
 			ps.lamportClock++
-			pm := PeerMessage{Type: StoreObject, Data: obj, Timestamp: ps.lamportClock}
-			log.Printf("DEBUG: Leader storing batch object, timestamp %d", ps.lamportClock)
+			currentTs := ps.lamportClock
+			pm := PeerMessage{Type: StoreObject, Data: obj, Timestamp: currentTs}
+			log.Printf("DEBUG: Leader storing batch object, timestamp %d", currentTs)
 			ps.enqueueMessage(pm)
 			// if _, err := database.InsertObject(ps.DB, obj.UserId, obj.UserMessageID, obj.Data); err != nil {
 			// 	return nil, err
 			// }
 			for _, addr := range ps.knownPeers {
-				go func(peerAddr string, o database.StoredObject) {
-					pm := PeerMessage{Type: StoreObject, Data: o,Timestamp: ps.lamportClock}
+				go func(peerAddr string, o database.StoredObject, ts int64) {
+					pm := PeerMessage{Type: StoreObject, Data: o,Timestamp: ts}
 					if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
 						log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
 					}
-				}(addr, obj)
+				}(addr, obj, currentTs)
 			}
 		}
 		return map[string]string{"status": "OK"}, nil
@@ -418,19 +419,20 @@ func (ps *PeerServer) UpdateObject(obj database.StoredObject) (map[string]string
 		return ps.ForwardRequestToLeader(pm)
 	} else if ps.Role == Leader {
 		ps.lamportClock++
-		pm.Timestamp = ps.lamportClock
-		log.Printf("DEBUG: Leader updating batch object, timestamp %d", ps.lamportClock)
+		currentTs := ps.lamportClock
+		pm := PeerMessage{Type: UpdateObject, Data: obj, Timestamp: currentTs}
+		log.Printf("DEBUG: Leader updating batch object, timestamp %d", currentTs)
 		ps.enqueueMessage(pm)
 		// if _, err := database.UpdateObjects(ps.DB, obj.UserId, obj.UserMessageID, obj.Data); err != nil {
 		// 	return nil, err
 		// }
 		for _, addr := range ps.knownPeers {
-			go func(peerAddr string, o database.StoredObject) {
-				pm := PeerMessage{Type: UpdateObject, Data: o, Timestamp: ps.lamportClock}
+			go func(peerAddr string, o database.StoredObject,ts int64) {
+				pm := PeerMessage{Type: UpdateObject, Data: o, Timestamp: ts}
 				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
 					log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
 				}
-			}(addr, obj)
+			}(addr, obj,currentTs)
 		}
 		return map[string]string{"status": "OK"}, nil
 	}
@@ -444,19 +446,20 @@ func (ps *PeerServer) DeleteObject(userId int, userMessageId int) (map[string]st
 		return ps.ForwardRequestToLeader(pm)
 	} else if ps.Role == Leader {
 		ps.lamportClock++
-		pm.Timestamp = ps.lamportClock
-		log.Printf("DEBUG: Leader updating batch object, timestamp %d", ps.lamportClock)
+		currentTs := ps.lamportClock
+		pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId}, Timestamp: currentTs}
+		log.Printf("DEBUG: Leader updating batch object, timestamp %d", currentTs)
 		ps.enqueueMessage(pm)
 		// if _, err := database.DeleteObject(ps.DB, userId, userMessageId); err != nil {
 		// 	return nil, err
 		// }
 		for _, addr := range ps.knownPeers {
-			go func(peerAddr string, uid, umid int) {
-				pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: uid, UserMessageID: umid}, Timestamp: ps.lamportClock}
+			go func(peerAddr string, uid, umid int, ts int64) {
+				pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: uid, UserMessageID: umid}, Timestamp: ts}
 				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
 					log.Printf("Leader failed to push delete to follower %s: %v", peerAddr, err)
 				}
-			}(addr, userId, userMessageId)
+			}(addr, userId, userMessageId,currentTs)
 		}
 		return map[string]string{"status": "OK"}, nil
 	}
