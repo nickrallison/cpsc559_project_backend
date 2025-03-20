@@ -12,6 +12,10 @@ const (
 	DeleteObject
 	AddPeer
 	ConfirmPeer
+	// New election-related message types:
+	Election
+	ElectionAnswer
+	Coordinator
 )
 
 // InternalData holds extra metadata.
