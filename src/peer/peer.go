@@ -161,15 +161,17 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 			}
 		}
 	case Coordinator:
-		// If the coordinator message is from ourselves, ignore it.
-		if pm.Metadata.Sender == ps.PeerAddr {
-			log.Printf("[%s] Received Coordinator message from myself, ignoring.", ps.PeerAddr)
-		} else {
-			// Otherwise, update our leader info and become follower.
+		// Only accept the coordinator if the sender has higher priority.
+		// Assuming lexicographical ordering, a higher address means higher priority.
+		if pm.Metadata.Sender > ps.PeerAddr {
 			ps.LeaderAddr = pm.Metadata.Sender
 			ps.Role = Follower
 			log.Printf("[%s] Received Coordinator message. New leader is %s", ps.PeerAddr, ps.LeaderAddr)
+		} else {
+			// If the coordinator sender's priority is lower than mine, ignore the coordinator.
+			log.Printf("[%s] Received Coordinator message from %s but retaining leadership due to higher priority.", ps.PeerAddr, pm.Metadata.Sender)
 		}
+	
 	
 	default:
 		log.Printf("[%s] Unhandled peer message type: %d", ps.PeerAddr, pm.Type)
@@ -655,7 +657,12 @@ func (ps *PeerServer) startElection() {
             ps.startElection()
         }
     } else {
-        ps.becomeLeader()
+        // If no responses received, wait a bit longer for a coordinator message.
+		time.Sleep(3 * time.Second)
+		if ps.LeaderAddr == "" || ps.LeaderAddr == ps.PeerAddr {
+			ps.becomeLeader()
+		}
+
     }
 }
 
