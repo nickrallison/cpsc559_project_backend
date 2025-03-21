@@ -689,7 +689,7 @@ func (ps *PeerServer) becomeLeader() {
 
 
 
-=======
+
 func (ps *PeerServer) enqueueMessage(pm PeerMessage) {
 	ps.queueLock.Lock()
 	defer ps.queueLock.Unlock()
