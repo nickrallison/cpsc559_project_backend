@@ -16,6 +16,7 @@ const (
 	Election
 	ElectionAnswer
 	Coordinator
+	Heartbeat
 )
 
 // InternalData holds extra metadata.
