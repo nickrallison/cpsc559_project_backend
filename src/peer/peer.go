@@ -108,20 +108,25 @@ func (ps *PeerServer) Stop() {
 
 // handlePeerConnection decodes the incoming PeerMessage and dispatches to specific handlers.
 func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
-	defer conn.Close()
+    defer conn.Close()
 
-	var pm PeerMessage
-	dec := json.NewDecoder(conn)
-	if err := dec.Decode(&pm); err != nil {
-		// If the connection is closed normally, io.EOF is expected.
-		if err == io.EOF {
-			// Optionally log at a debug level or ignore.
-			log.Printf("Debug: reached EOF, connection closed normally")
-			return
-		}
-		log.Printf("Error decoding peer message: %v", err)
-		return
-	}
+    var pm PeerMessage
+    dec := json.NewDecoder(conn)
+    err := dec.Decode(&pm)
+    if err != nil {
+        // If the connection is closed normally, io.EOF is expected.
+        if err == io.EOF {
+            log.Printf("Debug: reached EOF, connection closed normally")
+            return
+        }
+        // Check for the specific benign error.
+        if strings.Contains(err.Error(), "socket is not connected") {
+            log.Printf("Debug: heartbeat connection closed (socket not connected)")
+            return
+        }
+        log.Printf("Error decoding peer message: %v", err)
+        return
+    }
 
 	switch pm.Type {
 	case GetObject:
@@ -171,11 +176,13 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 			// If the coordinator sender's priority is lower than mine, ignore the coordinator.
 			log.Printf("[%s] Received Coordinator message from %s but retaining leadership due to higher priority.", ps.PeerAddr, pm.Metadata.Sender)
 		}
-	
-	
-	default:
-		log.Printf("[%s] Unhandled peer message type: %d", ps.PeerAddr, pm.Type)
-	}
+	case Heartbeat:
+        log.Printf("[%s] Received heartbeat from %s", ps.PeerAddr, pm.Metadata.Sender)
+        return
+    // ... handle other message types
+    default:
+        log.Printf("[%s] Unhandled peer message type: %d", ps.PeerAddr, pm.Type)
+    }
 }
 
 
@@ -537,9 +544,24 @@ func (ps *PeerServer) isLeaderAlive() bool {
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	defer conn.Close()
+
+	// Send a heartbeat message.
+	hb := PeerMessage{
+		Type: Heartbeat,
+		Metadata: InternalData{
+			Sender: ps.PeerAddr,
+		},
+	}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(hb); err != nil {
+		return false
+	}
+	// Optionally, you could wait for an acknowledgment here.
+
 	return true
 }
+
 
 
 
