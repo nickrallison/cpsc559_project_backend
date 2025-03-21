@@ -28,5 +28,6 @@ type InternalData struct {
 type PeerMessage struct {
 	Type     PeerMessageType
 	Data     database.StoredObject
+	Timestamp int64 
 	Metadata InternalData
 }
