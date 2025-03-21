@@ -566,15 +566,13 @@ func (ps *PeerServer) isLeaderAlive() bool {
 
 
 func (ps *PeerServer) monitorLeader() {
-	// Only followers need to check the leader.
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		// If we are no longer a follower, stop monitoring.
-		if ps.Role != Follower {
-			log.Printf("[%s] No longer a follower. Stopping leader monitor.", ps.PeerAddr)
-			return
-		}
+    ticker := time.NewTicker(5 * time.Second)
+    defer ticker.Stop()
+    for range ticker.C {
+        if ps.Role != Follower {
+            log.Printf("[%s] No longer a follower. Stopping leader monitor.", ps.PeerAddr)
+            return
+        }
 		log.Printf("[%s] Checking if leader (%s) is alive...", ps.PeerAddr, ps.LeaderAddr)
 		if ps.LeaderAddr == "" || !ps.isLeaderAlive() {
 			log.Printf("[%s] Leader %s not reachable. Initiating election...", ps.PeerAddr, ps.LeaderAddr)
@@ -691,9 +689,9 @@ func (ps *PeerServer) startElection() {
 }
 
 func (ps *PeerServer) becomeLeader() {
-	ps.Role = Leader
-	ps.LeaderAddr = ps.PeerAddr
-	log.Printf("[%s] No higher priority peer responded. I am the new leader.", ps.PeerAddr)
+    ps.Role = Leader
+    ps.LeaderAddr = ps.PeerAddr
+    log.Printf("[%s] No higher priority peer responded. I am the new leader.", ps.PeerAddr)
 	// Broadcast the new leadership to all known peers.
 	for _, addr := range ps.knownPeers {
 		go func(peerAddr string) {
