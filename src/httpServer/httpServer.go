@@ -10,6 +10,16 @@ import (
 	"github.com/rs/cors"
 )
 
+func statusHandler(ps *peer.PeerServer) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]string{
+            "role":   ps.Role.String(),
+            "leader": ps.LeaderAddr,
+        })
+    }
+}
+
 func NewHTTPHandler(ps *peer.PeerServer) http.Handler {
 	mux := http.NewServeMux()
 
@@ -20,23 +30,30 @@ func NewHTTPHandler(ps *peer.PeerServer) http.Handler {
 		AllowCredentials: true,
 	})
 
+	// Existing objects route.
 	mux.HandleFunc("/objects", corsHandler.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			GetObjectsHandler(w, r, ps)
-
 		case http.MethodPost:
 			postObjectHandler(w, r, ps)
-
 		case http.MethodPut:
 			putObjectHandler(w, r, ps)
-
 		case http.MethodDelete:
 			deleteObjectHandler(w, r, ps)
-
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
+	})).ServeHTTP)
+
+	// New status endpoint.
+	mux.HandleFunc("/status", corsHandler.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Return the role and current leader address as JSON.
+		json.NewEncoder(w).Encode(map[string]string{
+			"role":   ps.Role.String(),
+			"leader": ps.LeaderAddr,
+		})
 	})).ServeHTTP)
 
 	return mux
