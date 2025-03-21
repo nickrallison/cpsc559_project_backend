@@ -599,81 +599,77 @@ func (ps *PeerServer) startElection() {
     time.Sleep(jitter)
     
     log.Printf("[%s] Starting election process...", ps.PeerAddr)
-
-    // Contact all peers in knownPeers that have a higher priority.
-    // Before sending out election messages, filter out unreachable higher-priority peers.
-var liveHigherPeers []string
-var updatedKnownPeers []string
-for _, addr := range ps.knownPeers {
-    if addr > ps.PeerAddr { // using lexicographical order as priority
-        conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-        if err != nil {
-            log.Printf("[%s] Higher priority peer %s unreachable, skipping...", ps.PeerAddr, addr)
-            continue
-        }
-        conn.Close()
-        liveHigherPeers = append(liveHigherPeers, addr)
-        // Optionally keep reachable peers in updatedKnownPeers.
-        updatedKnownPeers = append(updatedKnownPeers, addr)
-    } else {
-        // For lower-priority peers, keep them unchanged.
-        updatedKnownPeers = append(updatedKnownPeers, addr)
-    }
-}
-// Optionally update ps.knownPeers so that unreachable peers are removed.
-ps.knownPeers = updatedKnownPeers
-
-log.Printf("[%s] Found %d reachable higher priority peer(s): %v", ps.PeerAddr, len(liveHigherPeers), liveHigherPeers)
-
-if len(liveHigherPeers) == 0 {
-    ps.becomeLeader()
-    return
-}
-
-// Proceed to send election messages only to liveHigherPeers.
-electionResponses := make(chan bool, len(liveHigherPeers))
-for _, addr := range liveHigherPeers {
-    go func(peerAddr string) {
-        log.Printf("[%s] Contacting higher priority peer %s...", ps.PeerAddr, peerAddr)
-        conn, err := net.DialTimeout("tcp", peerAddr, 2*time.Second)
-        if err != nil {
-            log.Printf("[%s] Unable to connect to peer %s: %v", ps.PeerAddr, peerAddr, err)
-            electionResponses <- false
-            return
-        }
-        defer conn.Close()
-        pm := PeerMessage{
-            Type: Election,
-            Metadata: InternalData{
-                Sender: ps.PeerAddr,
-            },
-        }
-        enc := json.NewEncoder(conn)
-        if err := enc.Encode(pm); err != nil {
-            log.Printf("[%s] Failed to send Election message to %s: %v", ps.PeerAddr, peerAddr, err)
-            electionResponses <- false
-            return
-        }
-        dec := json.NewDecoder(conn)
-        var resp PeerMessage
-        if err := dec.Decode(&resp); err != nil {
-            log.Printf("[%s] Failed to decode response from %s: %v", ps.PeerAddr, peerAddr, err)
-            electionResponses <- false
-            return
-        }
-        if resp.Type == ElectionAnswer {
-            log.Printf("[%s] Received ElectionAnswer from %s", ps.PeerAddr, peerAddr)
-            electionResponses <- true
+    
+    // Filter out unreachable higher-priority peers.
+    var liveHigherPeers []string
+    var updatedKnownPeers []string
+    for _, addr := range ps.knownPeers {
+        if addr > ps.PeerAddr { // using lexicographical order as priority
+            conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+            if err != nil {
+                log.Printf("[%s] Higher priority peer %s unreachable, skipping...", ps.PeerAddr, addr)
+                continue
+            }
+            conn.Close()
+            liveHigherPeers = append(liveHigherPeers, addr)
+            updatedKnownPeers = append(updatedKnownPeers, addr)
         } else {
-            electionResponses <- false
+            updatedKnownPeers = append(updatedKnownPeers, addr)
         }
-    }(addr)
-}
-
-    // Increase timeout here to allow responses to come in.
+    }
+    // Optionally update knownPeers to remove unreachable nodes.
+    ps.knownPeers = updatedKnownPeers
+    
+    log.Printf("[%s] Found %d reachable higher priority peer(s): %v", ps.PeerAddr, len(liveHigherPeers), liveHigherPeers)
+    
+    if len(liveHigherPeers) == 0 {
+        ps.becomeLeader()
+        return
+    }
+    
+    electionResponses := make(chan bool, len(liveHigherPeers))
+    for _, addr := range liveHigherPeers {
+        go func(peerAddr string) {
+            log.Printf("[%s] Contacting higher priority peer %s...", ps.PeerAddr, peerAddr)
+            conn, err := net.DialTimeout("tcp", peerAddr, 2*time.Second)
+            if err != nil {
+                log.Printf("[%s] Unable to connect to peer %s: %v", ps.PeerAddr, peerAddr, err)
+                electionResponses <- false
+                return
+            }
+            defer conn.Close()
+            pm := PeerMessage{
+                Type: Election,
+                Metadata: InternalData{
+                    Sender: ps.PeerAddr,
+                },
+            }
+            enc := json.NewEncoder(conn)
+            if err := enc.Encode(pm); err != nil {
+                log.Printf("[%s] Failed to send Election message to %s: %v", ps.PeerAddr, peerAddr, err)
+                electionResponses <- false
+                return
+            }
+            dec := json.NewDecoder(conn)
+            var resp PeerMessage
+            if err := dec.Decode(&resp); err != nil {
+                log.Printf("[%s] Failed to decode response from %s: %v", ps.PeerAddr, peerAddr, err)
+                electionResponses <- false
+                return
+            }
+            if resp.Type == ElectionAnswer {
+                log.Printf("[%s] Received ElectionAnswer from %s", ps.PeerAddr, peerAddr)
+                electionResponses <- true
+            } else {
+                electionResponses <- false
+            }
+        }(addr)
+    }
+    
+    // Increase timeout to allow responses.
     timeout := time.After(5 * time.Second)
     receivedAnswer := false
-    for i := 0; i < len(higherPeers); i++ {
+    for i := 0; i < len(liveHigherPeers); i++ {
         select {
         case answer := <-electionResponses:
             if answer {
@@ -684,24 +680,19 @@ for _, addr := range liveHigherPeers {
             break
         }
     }
-
+    
     if receivedAnswer {
         log.Printf("[%s] Received response from higher priority peer(s), waiting for coordinator...", ps.PeerAddr)
-        // Wait a bit longer for a coordinator message.
         time.Sleep(3 * time.Second)
         if ps.LeaderAddr == "" || ps.LeaderAddr == ps.PeerAddr {
             log.Printf("[%s] No coordinator received, restarting election.", ps.PeerAddr)
             ps.startElection()
         }
     } else {
-        // If no responses received, wait a bit longer for a coordinator message.
-		time.Sleep(3 * time.Second)
-		if ps.LeaderAddr == "" || ps.LeaderAddr == ps.PeerAddr {
-			ps.becomeLeader()
-		}
-
+        ps.becomeLeader()
     }
 }
+
 
 func (ps *PeerServer) becomeLeader() {
 	ps.Role = Leader
