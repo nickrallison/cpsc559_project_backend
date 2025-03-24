@@ -1,8 +1,8 @@
 package peer
 
 import (
-	"cpsc559/src/database"
 	"container/heap"
+	"cpsc559/src/database"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -40,15 +40,15 @@ func RoleFromString(s *string) Role {
 
 // PeerServer defines an instance of a peer (leader or follower).
 type PeerServer struct {
-	Role       Role         // Leader or Follower
-	PeerAddr   string       // e.g. "localhost:9000"
-	LeaderAddr string       // If follower, the leader’s address
-	DB         *sql.DB      // Local database handle
-	knownPeers []string     // For leader: a list of follower peer addresses
-	listener   net.Listener // the TCP listener so we can stop the server
-	lamportClock int64 
-	msgQueue  PriorityQueue
-	queueLock sync.Mutex
+	Role         Role         // Leader or Follower
+	PeerAddr     string       // e.g. "localhost:9000"
+	LeaderAddr   string       // If follower, the leader’s address
+	DB           *sql.DB      // Local database handle
+	knownPeers   []string     // For leader: a list of follower peer addresses
+	listener     net.Listener // the TCP listener so we can stop the server
+	lamportClock int64
+	msgQueue     PriorityQueue
+	queueLock    sync.Mutex
 }
 
 // NewPeerServer creates and returns a new instance.
@@ -56,9 +56,9 @@ func NewPeerServer(role Role, port, addr string, leaderAddr, peers string, db *s
 	ps := PeerServer{
 		Role: role,
 		//PeerAddr:   os.Getenv("MYOWN") + port, //your own machine's api from tailscale
-		PeerAddr:   addr + ":" + port, //your own machine's api from tailscale
-		LeaderAddr: leaderAddr,
-		DB:         db,
+		PeerAddr:     addr + ":" + port, //your own machine's api from tailscale
+		LeaderAddr:   leaderAddr,
+		DB:           db,
 		lamportClock: 0,
 		msgQueue:     make(PriorityQueue, 0),
 	}
@@ -117,6 +117,15 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 		ps.handleUpdateObject(conn, pm)
 	case DeleteObject:
 		ps.handleDeleteObject(conn, pm)
+	case GetLamport:
+		// New handler: return the current lamport clock
+		enc := json.NewEncoder(conn)
+		resp := map[string]interface{}{
+			"lamport": ps.lamportClock,
+		}
+		if err := enc.Encode(resp); err != nil {
+			log.Printf("Error encoding lamport response: %v", err)
+		}
 	default:
 		log.Printf("Unhandled peer message type: %d", pm.Type)
 	}
@@ -185,7 +194,7 @@ func (ps *PeerServer) handleStoreObject(conn net.Conn, pm PeerMessage) {
 			// 	enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
 			// 	return
 			// }
-			ps.lamportClock = max(ps.lamportClock, pm.Timestamp) + 1
+			ps.lamportClock = max(ps.lamportClock, pm.Timestamp)
 			log.Printf("DEBUG: Follower applying store from leader; updated clock to %d", ps.lamportClock)
 			ps.enqueueMessage(pm)
 			resp := map[string]string{"status": "OK"}
@@ -237,7 +246,7 @@ func (ps *PeerServer) handleUpdateObject(conn net.Conn, pm PeerMessage) {
 			// 	enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
 			// 	return
 			// }
-			ps.lamportClock = max(ps.lamportClock, pm.Timestamp) + 1
+			ps.lamportClock = max(ps.lamportClock, pm.Timestamp)
 			log.Printf("DEBUG: Follower updating object from leader; updated clock to %d", ps.lamportClock)
 			ps.enqueueMessage(pm)
 			resp := map[string]string{"status": "OK"}
@@ -289,7 +298,7 @@ func (ps *PeerServer) handleDeleteObject(conn net.Conn, pm PeerMessage) {
 			// 	enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
 			// 	return
 			// }
-			ps.lamportClock = max(ps.lamportClock, pm.Timestamp) + 1
+			ps.lamportClock = max(ps.lamportClock, pm.Timestamp)
 			log.Printf("DEBUG: Follower deleting object from leader; updated clock to %d", ps.lamportClock)
 			ps.enqueueMessage(pm)
 			resp := map[string]string{"status": "OK"}
@@ -400,7 +409,7 @@ func (ps *PeerServer) StoreObjects(objs []database.StoredObject) (map[string]str
 			// }
 			for _, addr := range ps.knownPeers {
 				go func(peerAddr string, o database.StoredObject, ts int64) {
-					pm := PeerMessage{Type: StoreObject, Data: o,Timestamp: ts}
+					pm := PeerMessage{Type: StoreObject, Data: o, Timestamp: ts}
 					if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
 						log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
 					}
@@ -427,12 +436,12 @@ func (ps *PeerServer) UpdateObject(obj database.StoredObject) (map[string]string
 		// 	return nil, err
 		// }
 		for _, addr := range ps.knownPeers {
-			go func(peerAddr string, o database.StoredObject,ts int64) {
+			go func(peerAddr string, o database.StoredObject, ts int64) {
 				pm := PeerMessage{Type: UpdateObject, Data: o, Timestamp: ts}
 				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
 					log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
 				}
-			}(addr, obj,currentTs)
+			}(addr, obj, currentTs)
 		}
 		return map[string]string{"status": "OK"}, nil
 	}
@@ -459,7 +468,7 @@ func (ps *PeerServer) DeleteObject(userId int, userMessageId int) (map[string]st
 				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
 					log.Printf("Leader failed to push delete to follower %s: %v", peerAddr, err)
 				}
-			}(addr, userId, userMessageId,currentTs)
+			}(addr, userId, userMessageId, currentTs)
 		}
 		return map[string]string{"status": "OK"}, nil
 	}
@@ -493,7 +502,6 @@ func (ps *PeerServer) processQueue() {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
-
 
 // applyMessage applies the database operation based on the message type.
 func (ps *PeerServer) applyMessage(pm PeerMessage) {

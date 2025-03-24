@@ -12,6 +12,7 @@ const (
 	DeleteObject
 	AddPeer
 	ConfirmPeer
+	GetLamport
 )
 
 // InternalData holds extra metadata.
