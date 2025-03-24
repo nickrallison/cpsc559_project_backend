@@ -38,7 +38,7 @@ def send_tcp_message(addr, message):
 def get_lamport(node_name):
     addr = NODES[node_name]
     msg = {
-        "Type": 6,  # GetLamport; assuming GetObject=0, StoreObject=1, UpdateObject=2, DeleteObject=3, AddPeer=4, ConfirmPeer=5, GetLamport=6
+        "Type": 10,
         "Data": {},
         "Timestamp": 0,
         "Metadata": {"Sender": ""}
