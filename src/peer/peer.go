@@ -609,31 +609,81 @@ func (ps *PeerServer) UpdateObject(obj database.StoredObject) (map[string]string
     return nil, fmt.Errorf("invalid role")
 }
 
-// DeleteObject deletes an object.
+// DeleteObject deletes an object with quorum consistency
 func (ps *PeerServer) DeleteObject(userId int, userMessageId int) (map[string]string, error) {
-	pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId}}
-	if ps.Role == Follower {
-		return ps.ForwardRequestToLeader(pm)
-	} else if ps.Role == Leader {
-		ps.lamportClock++
-		currentTs := ps.lamportClock
-		pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId}, Timestamp: currentTs}
-		log.Printf("DEBUG: Leader updating batch object, timestamp %d", currentTs)
-		ps.enqueueMessage(pm)
-		// if _, err := database.DeleteObject(ps.DB, userId, userMessageId); err != nil {
-		// 	return nil, err
-		// }
-		for _, addr := range ps.knownPeers {
-			go func(peerAddr string, uid, umid int, ts int64) {
-				pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: uid, UserMessageID: umid}, Timestamp: ts}
-				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
-					log.Printf("Leader failed to push delete to follower %s: %v", peerAddr, err)
-				}
-			}(addr, userId, userMessageId, currentTs)
-		}
-		return map[string]string{"status": "OK"}, nil
-	}
-	return nil, fmt.Errorf("invalid role")
+    pm := PeerMessage{Type: DeleteObject, Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId}}
+    if ps.Role == Follower {
+        return ps.ForwardRequestToLeader(pm)
+    } else if ps.Role == Leader {
+        ps.lamportClock++
+        currentTs := ps.lamportClock
+        pm := PeerMessage{
+            Type: DeleteObject, 
+            Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId},
+            Timestamp: currentTs,
+        }
+        log.Printf("DEBUG: Leader deleting object, timestamp %d", currentTs)
+        
+        // Calculate quorum size (majority of nodes including leader)
+        quorumSize := (len(ps.knownPeers) + 1) / 2 + 1
+        
+        // Enqueue locally (counts as 1 ack)
+        ps.enqueueMessage(pm)
+        ackCount := 1
+        
+        // Create channel for acknowledgments
+        ackChan := make(chan bool, len(ps.knownPeers))
+        var wg sync.WaitGroup
+        
+        // Push to followers in parallel
+        for _, addr := range ps.knownPeers {
+            wg.Add(1)
+            go func(peerAddr string) {
+                defer wg.Done()
+                if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
+                    log.Printf("Leader failed to push delete to follower %s: %v", peerAddr, err)
+                    ackChan <- false
+                } else {
+                    ackChan <- true
+                }
+            }(addr)
+        }
+        
+        // Wait for acks in separate goroutine
+        go func() {
+            wg.Wait()
+            close(ackChan)
+        }()
+        
+        // Count acknowledgments
+        timeout := time.After(5 * time.Second)
+    ackLoop:
+        for {
+            select {
+            case ack, ok := <-ackChan:
+                if !ok {
+                    break ackLoop // all responses received
+                }
+                if ack {
+                    ackCount++
+                    if ackCount >= quorumSize {
+                        break ackLoop // quorum achieved
+                    }
+                }
+            case <-timeout:
+                log.Printf("Timeout waiting for quorum acknowledgments")
+                break ackLoop
+            }
+        }
+        
+        if ackCount < quorumSize {
+            return nil, fmt.Errorf("failed to achieve quorum (%d/%d nodes responded)", ackCount, quorumSize)
+        }
+        
+        log.Printf("DEBUG: Achieved quorum (%d/%d) for delete at timestamp %d", ackCount, quorumSize, currentTs)
+        return map[string]string{"status": "OK"}, nil
+    }
+    return nil, fmt.Errorf("invalid role")
 }
 
 
