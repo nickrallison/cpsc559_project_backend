@@ -13,7 +13,6 @@ import (
 	"time"
 	"io"
 	"math/rand"
-
 	"sync"
 
 )
@@ -451,42 +450,90 @@ func (ps *PeerServer) GetObject(userId, userMessageId int) (database.StoredObjec
 	return obj, err
 }
 
-// StoreObjects writes an array of objects.
-// If the node is a follower, it automatically forwards the writes to its leader; if leader, it writes locally and pushes updates.
+// StoreObjects writes an array of objects with quorum consistency.
+// If the node is a follower, it forwards writes to the leader.
+// If the node is the leader, it ensures writes are replicated to a majority of nodes before acknowledging.
 func (ps *PeerServer) StoreObjects(objs []database.StoredObject) (map[string]string, error) {
-	if ps.Role == Follower {
-		var lastResp map[string]string
-		for _, obj := range objs {
-			pm := PeerMessage{Type: StoreObject, Data: obj}
-			resp, err := ps.ForwardRequestToLeader(pm)
-			if err != nil {
-				return nil, err
-			}
-			lastResp = resp
-		}
-		return lastResp, nil
-	} else if ps.Role == Leader {
-		for _, obj := range objs {
-			ps.lamportClock++
-			currentTs := ps.lamportClock
-			pm := PeerMessage{Type: StoreObject, Data: obj, Timestamp: currentTs}
-			log.Printf("DEBUG: Leader storing batch object, timestamp %d", currentTs)
-			ps.enqueueMessage(pm)
-			// if _, err := database.InsertObject(ps.DB, obj.UserId, obj.UserMessageID, obj.Data); err != nil {
-			// 	return nil, err
-			// }
-			for _, addr := range ps.knownPeers {
-				go func(peerAddr string, o database.StoredObject, ts int64) {
-					pm := PeerMessage{Type: StoreObject, Data: o, Timestamp: ts}
-					if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
-						log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
-					}
-				}(addr, obj, currentTs)
-			}
-		}
-		return map[string]string{"status": "OK"}, nil
-	}
-	return nil, fmt.Errorf("invalid role")
+    if ps.Role == Follower {
+        var lastResp map[string]string
+        for _, obj := range objs {
+            pm := PeerMessage{Type: StoreObject, Data: obj}
+            resp, err := ps.ForwardRequestToLeader(pm)
+            if err != nil {
+                return nil, err
+            }
+            lastResp = resp
+        }
+        return lastResp, nil
+    } else if ps.Role == Leader {
+        // Calculate the quorum size (majority of nodes including leader)
+        quorumSize := (len(ps.knownPeers) + 1) / 2 + 1 // +1 for leader
+        
+        for _, obj := range objs {
+            ps.lamportClock++
+            currentTs := ps.lamportClock
+            pm := PeerMessage{Type: StoreObject, Data: obj, Timestamp: currentTs}
+            log.Printf("DEBUG: Leader storing batch object, timestamp %d", currentTs)
+            
+            // Create a channel to collect acknowledgments
+            ackChan := make(chan bool, len(ps.knownPeers))
+            var wg sync.WaitGroup
+            
+            // Enqueue the message locally (counts as 1 acknowledgment)
+            ps.enqueueMessage(pm)
+            ackCount := 1 // Start with 1 for the leader itself
+            
+            // Push update to followers in parallel
+            for _, addr := range ps.knownPeers {
+                wg.Add(1)
+                go func(peerAddr string) {
+                    defer wg.Done()
+                    if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
+                        log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
+                        ackChan <- false
+                    } else {
+                        ackChan <- true
+                    }
+                }(addr)
+            }
+            
+            // Wait for acknowledgments in a separate goroutine
+            go func() {
+                wg.Wait()
+                close(ackChan)
+            }()
+            
+            // Count acknowledgments until we reach quorum or timeout
+            timeout := time.After(5 * time.Second)
+        ackLoop:
+            for {
+                select {
+                case ack, ok := <-ackChan:
+                    if !ok {
+                        break ackLoop // all followers responded
+                    }
+                    if ack {
+                        ackCount++
+                        if ackCount >= quorumSize {
+                            break ackLoop // quorum reached
+                        }
+                    }
+                case <-timeout:
+                    log.Printf("Timeout waiting for quorum acknowledgments")
+                    break ackLoop
+                }
+            }
+            
+            if ackCount < quorumSize {
+                return nil, fmt.Errorf("failed to achieve quorum (%d/%d nodes responded)", ackCount, quorumSize)
+            }
+            
+            log.Printf("DEBUG: Achieved quorum (%d/%d) for write at timestamp %d", ackCount, quorumSize, currentTs)
+        }
+        
+        return map[string]string{"status": "OK"}, nil
+    }
+    return nil, fmt.Errorf("invalid role")
 }
 
 // UpdateObject updates an object.
