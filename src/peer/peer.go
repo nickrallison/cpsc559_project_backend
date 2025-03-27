@@ -1037,32 +1037,159 @@ func (ps *PeerServer) startElection() {
 }
 
 
-func (ps *PeerServer) becomeLeader() {
-	ps.Role = Leader
-	ps.LeaderAddr = ps.PeerAddr
-	log.Printf("[%s] No higher priority peer responded. I am the new leader.", ps.PeerAddr)
-	// Broadcast the new leadership to all known peers.
-	for _, addr := range ps.knownPeers {
-		go func(peerAddr string) {
-			log.Printf("[%s] Notifying peer %s of new leadership...", ps.PeerAddr, peerAddr)
-			conn, err := net.DialTimeout("tcp", peerAddr, 2*time.Second)
-			if err != nil {
-				log.Printf("[%s] Failed to connect to peer %s: %v", ps.PeerAddr, peerAddr, err)
-				return
-			}
-			defer conn.Close()
-			pm := PeerMessage{
-				Type: Coordinator,
-				Metadata: InternalData{
-					Sender: ps.PeerAddr,
-				},
-			}
-			enc := json.NewEncoder(conn)
-			if err := enc.Encode(pm); err != nil {
-				log.Printf("[%s] Failed to send coordinator to %s: %v", ps.PeerAddr, peerAddr, err)
-			}
-		}(addr)
-	}
+func (ps *PeerServer) becomeLeader() error {
+    // Phase 1: Prepare for leadership transition
+    ps.queueLock.Lock()
+    defer ps.queueLock.Unlock()
+
+    // 1. Ensure all pending messages are processed
+    for ps.msgQueue.Len() > 0 {
+        item := heap.Pop(&ps.msgQueue).(*MessageItem)
+        ps.applyMessage(item.message)
+        ps.lamportClock = item.message.Timestamp
+    }
+
+    // Phase 2: Verify we have the latest state
+    var (
+        highestTimestamp int64
+        mostUpdatedPeer  string
+    )
+
+    // Check with all known peers to find the most up-to-date state
+    for _, addr := range ps.knownPeers {
+        ts, err := ps.getPeerTimestamp(addr)
+        if err != nil {
+            log.Printf("Failed to get timestamp from %s: %v", addr, err)
+            continue
+        }
+
+        if ts > highestTimestamp {
+            highestTimestamp = ts
+            mostUpdatedPeer = addr
+        }
+    }
+
+    // Phase 3: Synchronize state if needed
+    if highestTimestamp > ps.lamportClock {
+        log.Printf("Need to synchronize with %s (their ts:%d vs our ts:%d)",
+            mostUpdatedPeer, highestTimestamp, ps.lamportClock)
+
+        if err := ps.synchronizeWithPeer(mostUpdatedPeer); err != nil {
+            return fmt.Errorf("failed to synchronize with %s: %v", mostUpdatedPeer, err)
+        }
+    }
+
+    // Phase 4: Formalize leadership
+    ps.Role = Leader
+    ps.LeaderAddr = ps.PeerAddr
+
+    // Phase 5: Announce leadership with our state
+    var wg sync.WaitGroup
+    for _, addr := range ps.knownPeers {
+        wg.Add(1)
+        go func(peerAddr string) {
+            defer wg.Done()
+            ps.announceLeadership(peerAddr)
+        }(addr)
+    }
+
+    // Wait for announcements to complete (with timeout)
+    done := make(chan struct{})
+    go func() {
+        wg.Wait()
+        close(done)
+    }()
+
+    select {
+    case <-done:
+        log.Printf("Leadership announcement completed")
+    case <-time.After(5 * time.Second):
+        log.Printf("Timeout waiting for leadership announcements")
+    }
+
+    return nil
+}
+
+// Helper function to get a peer's latest timestamp
+func (ps *PeerServer) getPeerTimestamp(addr string) (int64, error) {
+    conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+    if err != nil {
+        return 0, err
+    }
+    defer conn.Close()
+
+    if err := json.NewEncoder(conn).Encode(PeerMessage{Type: GetLamport}); err != nil {
+        return 0, err
+    }
+
+    var response struct {
+        Lamport int64 `json:"lamport"`
+    }
+    if err := json.NewDecoder(conn).Decode(&response); err != nil {
+        return 0, err
+    }
+
+    return response.Lamport, nil
+}
+
+// Helper function to synchronize with a specific peer
+func (ps *PeerServer) synchronizeWithPeer(addr string) error {
+    conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+    if err != nil {
+        return err
+    }
+    defer conn.Close()
+
+    // Request updates since our last timestamp
+    syncReq := PeerMessage{
+        Type: GetUpdatesSince,
+        Metadata: InternalData{
+            Sender:    ps.PeerAddr,
+            StartTime: ps.lamportClock + 1,
+        },
+    }
+
+    if err := json.NewEncoder(conn).Encode(syncReq); err != nil {
+        return err
+    }
+
+    // Process incoming updates
+    dec := json.NewDecoder(conn)
+    for {
+        var update PeerMessage
+        if err := dec.Decode(&update); err != nil {
+            if err == io.EOF {
+                break
+            }
+            return err
+        }
+
+        if update.Timestamp > ps.lamportClock {
+            ps.enqueueMessage(update)
+            ps.lamportClock = update.Timestamp
+        }
+    }
+
+    return nil
+}
+
+// Helper function to announce leadership to a peer
+func (ps *PeerServer) announceLeadership(addr string) error {
+    conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+    if err != nil {
+        return err
+    }
+    defer conn.Close()
+
+    leaderMsg := PeerMessage{
+        Type: Coordinator,
+        Metadata: InternalData{
+            Sender: ps.PeerAddr,
+        },
+        Timestamp: ps.lamportClock,
+    }
+
+    return json.NewEncoder(conn).Encode(leaderMsg)
 }
 
 
