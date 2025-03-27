@@ -285,10 +285,15 @@ func (ps *PeerServer) handleStoreObject(conn net.Conn, pm PeerMessage) {
 			ps.lamportClock = max(ps.lamportClock, pm.Timestamp)
 			log.Printf("DEBUG: Follower applying store from leader; updated clock to %d", ps.lamportClock)
 			ps.enqueueMessage(pm)
-			resp := map[string]string{"status": "OK"}
-			if err := enc.Encode(resp); err != nil {
-				log.Printf("Error encoding response in StoreObject (follower applying update): %v", err)
-			}
+
+			 // Send ACK response to leader
+			 ack := AckMessage{
+                Status:    "OK",
+                Timestamp: pm.Timestamp,
+            }
+            if err := enc.Encode(ack); err != nil {
+                log.Printf("Error encoding ACK in StoreObject (follower applying update): %v", err)
+            }
 		} else {
 			// Forward the store request to the leader.
 			respMap, err := ps.ForwardRequestToLeader(pm)
@@ -492,7 +497,7 @@ func (ps *PeerServer) StoreObjects(objs []database.StoredObject) (map[string]str
         return lastResp, nil
     } else if ps.Role == Leader {
         // Calculate the quorum size (majority of nodes including leader)
-        quorumSize := (len(ps.knownPeers) + 1) / 2 + 1 // +1 for leader
+        quorumSize := (len(ps.knownPeers)) / 2
         
         for _, obj := range objs {
             ps.lamportClock++
@@ -573,7 +578,7 @@ func (ps *PeerServer) UpdateObject(obj database.StoredObject) (map[string]string
         log.Printf("DEBUG: Leader updating object, timestamp %d", currentTs)
         
         // Calculate quorum size (majority of nodes including leader)
-        quorumSize := (len(ps.knownPeers) + 1) / 2 + 1
+        quorumSize := (len(ps.knownPeers)) / 2
         
         // Enqueue locally (counts as 1 ack)
         ps.enqueueMessage(pm)
@@ -650,7 +655,7 @@ func (ps *PeerServer) DeleteObject(userId int, userMessageId int) (map[string]st
         log.Printf("DEBUG: Leader deleting object, timestamp %d", currentTs)
         
         // Calculate quorum size (majority of nodes including leader)
-        quorumSize := (len(ps.knownPeers) + 1) / 2 + 1
+        quorumSize := (len(ps.knownPeers)) / 2
         
         // Enqueue locally (counts as 1 ack)
         ps.enqueueMessage(pm)
