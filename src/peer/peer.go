@@ -744,22 +744,29 @@ func (ps *PeerServer) enqueueMessage(pm PeerMessage) {
 
 // processQueue continuously processes messages from the queue in order.
 func (ps *PeerServer) processQueue() {
-	var expectedTimestamp int64 = 1
-	for {
-		ps.queueLock.Lock()
-		if ps.msgQueue.Len() > 0 {
-			item := ps.msgQueue[0]
-			if item.message.Timestamp == expectedTimestamp {
-				heap.Pop(&ps.msgQueue)
-				ps.queueLock.Unlock()
-				ps.applyMessage(item.message)
-				expectedTimestamp++
-				continue
-			}
-		}
-		ps.queueLock.Unlock()
-		time.Sleep(10 * time.Millisecond)
-	}
+    var expectedTimestamp int64 = 1
+    for {
+        ps.queueLock.Lock()
+        if ps.msgQueue.Len() > 0 {
+            item := ps.msgQueue[0]
+            if item.message.Timestamp <= expectedTimestamp {
+                heap.Pop(&ps.msgQueue)
+                ps.queueLock.Unlock()
+                
+                // Apply the message if it's exactly what we expect
+                if item.message.Timestamp == expectedTimestamp {
+                    ps.applyMessage(item.message)
+                    expectedTimestamp++
+                } else {
+                    // If it's older (shouldn't happen with proper Lamport clocks), apply but don't increment
+                    ps.applyMessage(item.message)
+                }
+                continue
+            }
+        }
+        ps.queueLock.Unlock()
+        time.Sleep(10 * time.Millisecond)
+    }
 }
 
 // applyMessage applies the database operation based on the message type.
