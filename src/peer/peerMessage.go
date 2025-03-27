@@ -7,6 +7,7 @@ type PeerMessageType int
 
 const (
 	GetObject PeerMessageType = iota
+	GetUpdatesSince PeerMessageType = iota
 	StoreObject
 	UpdateObject
 	DeleteObject
@@ -22,8 +23,9 @@ const (
 
 // InternalData holds extra metadata.
 type InternalData struct {
-	Sender    string
-	PeerToAdd string
+	Sender    	string
+	PeerToAdd 	string
+	StartTime 	int64  // for synchronization requests
 }
 
 // PeerMessage represents a message between peers.
