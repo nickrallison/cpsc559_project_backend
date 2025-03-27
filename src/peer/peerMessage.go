@@ -33,3 +33,9 @@ type PeerMessage struct {
 	Timestamp int64 
 	Metadata InternalData
 }
+
+// AckMessage represents an acknowledgment response
+type AckMessage struct {
+	Status    string `json:"status"`
+	Timestamp int64  `json:"timestamp"`
+}

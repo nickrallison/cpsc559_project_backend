@@ -398,10 +398,14 @@ func (ps *PeerServer) pushUpdateToPeer(addr string, pm PeerMessage) error {
 		return fmt.Errorf("failed to encode message: %v", err)
 	}
 	dec := json.NewDecoder(conn)
-	var resp map[string]string
-	if err := dec.Decode(&resp); err != nil {
-		return fmt.Errorf("failed to decode response: %v", err)
-	}
+    var ack AckMessage
+    if err := dec.Decode(&ack); err != nil {
+        return fmt.Errorf("failed to decode ack: %v", err)
+    }
+    
+    if ack.Status != "OK" || ack.Timestamp != pm.Timestamp {
+        return fmt.Errorf("follower failed to ack message properly")
+    }
 	return nil
 }
 
