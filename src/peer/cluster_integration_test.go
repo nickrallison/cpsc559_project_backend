@@ -2,10 +2,12 @@ package peer_test
 
 import (
 	"cpsc559/src/database"
+	"database/sql"
 	"cpsc559/src/peer"
 	"cpsc559/src/httpServer" 
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -341,5 +343,304 @@ func TestReadConsistencyDuringTransition(t *testing.T) {
 	}
 	if len(objs) != 1 || objs[0].Data != "Consistent Read Test" {
 		t.Errorf("Expected consistent read after leader transition, got: %+v", objs)
+	}
+}
+
+
+// startDummyServer starts a TCP listener on the given port that accepts connections
+// but never sends an acknowledgment. It returns the listener and a channel that
+// can be closed to stop the dummy server.
+func startDummyServer(port string, stop chan struct{}) net.Listener {
+	ln, err := net.Listen("tcp", "localhost:"+port)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to start dummy server on port %s: %v", port, err))
+	}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			// Simulate delay: wait longer than the leader's pushUpdateToPeer timeout (5 sec)
+			go func(c net.Conn) {
+				select {
+				case <-stop:
+					// Stop immediately if signaled.
+				case <-time.After(10 * time.Second):
+				}
+				c.Close()
+			}(conn)
+		}
+	}()
+	return ln
+}
+
+// ------------------------
+// Test Case 1: Quorum Met
+// ------------------------
+// All four followers are proper instances.
+func TestQuorumReplicationCaseMet(t *testing.T) {
+	tempDir := t.TempDir()
+	leaderDBPath := "file:" + filepath.Join(tempDir, "leader_met.db")
+	err, leaderDB := database.InitDB(leaderDBPath)
+	if err != nil {
+		t.Fatalf("Leader DB init error: %v", err)
+	}
+	// Create four follower databases.
+	followerDBs := make([]*sql.DB, 4)
+	followerPaths := []string{
+		"file:" + filepath.Join(tempDir, "follower_met1.db"),
+		"file:" + filepath.Join(tempDir, "follower_met2.db"),
+		"file:" + filepath.Join(tempDir, "follower_met3.db"),
+		"file:" + filepath.Join(tempDir, "follower_met4.db"),
+	}
+	for i, path := range followerPaths {
+		err, db := database.InitDB(path)
+		if err != nil {
+			t.Fatalf("Follower %d DB init error: %v", i+1, err)
+		}
+		followerDBs[i] = db
+	}
+
+	// Leader on port 9320.
+	leader := peer.NewPeerServer(peer.Leader, "9320", "localhost", "", "localhost:9321,localhost:9322,localhost:9323,localhost:9324", leaderDB)
+	leader.Start()
+	// Start four follower servers on ports 9321-9324.
+	followerPorts := []string{"9321", "9322", "9323", "9324"}
+	followers := make([]*peer.PeerServer, len(followerPorts))
+	for i, port := range followerPorts {
+		ps := peer.NewPeerServer(peer.Follower, port, "localhost", "localhost:9320", "", followerDBs[i])
+		ps.Start()
+		followers[i] = &ps
+	}
+
+	t.Cleanup(func() {
+		leader.Stop()
+		for _, f := range followers {
+			f.Stop()
+		}
+		time.Sleep(100 * time.Millisecond)
+		leaderDB.Close()
+		for _, db := range followerDBs {
+			db.Close()
+		}
+	})
+
+	// Send a write.
+	obj := database.StoredObject{
+		UserId:        100,
+		UserMessageID: 1,
+		Data:          "case1: quorum met",
+	}
+	if _, err := leader.StoreObjects([]database.StoredObject{obj}); err != nil {
+		t.Fatalf("Expected write to succeed, but got error: %v", err)
+	}
+
+	// Allow time for replication.
+	time.Sleep(2 * time.Second)
+
+	// Verify that the object appears in the leader and all followers.
+	leaderObjs, err := database.GetObjects(leaderDB, 100)
+	if err != nil {
+		t.Fatalf("Leader GetObjects error: %v", err)
+	}
+	if len(leaderObjs) != 1 {
+		t.Errorf("Leader expected 1 object; got %d", len(leaderObjs))
+	}
+	for i, db := range followerDBs {
+		objs, err := database.GetObjects(db, 100)
+		if err != nil {
+			t.Fatalf("Follower %d GetObjects error: %v", i+1, err)
+		}
+		if len(objs) != 1 {
+			t.Errorf("Follower %d expected 1 object; got %d", i+1, len(objs))
+		}
+	}
+}
+
+// ---------------------------
+// Test Case 2: Quorum Not Met
+// ---------------------------
+// Three of the four follower endpoints are dummy servers (nonresponsive) while one runs properly.
+func TestQuorumReplicationCaseNotMet(t *testing.T) {
+	tempDir := t.TempDir()
+	leaderDBPath := "file:" + filepath.Join(tempDir, "leader_notmet.db")
+	err, leaderDB := database.InitDB(leaderDBPath)
+	if err != nil {
+		t.Fatalf("Leader DB init error: %v", err)
+	}
+	// For the proper follower.
+	followerDBPath := "file:" + filepath.Join(tempDir, "follower_notmet.db")
+	err, properDB := database.InitDB(followerDBPath)
+	if err != nil {
+		t.Fatalf("Proper follower DB init error: %v", err)
+	}
+
+	// Leader on port 9330.
+	leader := peer.NewPeerServer(peer.Leader, "9330", "localhost", "", "localhost:9331,localhost:9332,localhost:9333,localhost:9334", leaderDB)
+	leader.Start()
+
+	// For ports 9331-9333, start dummy servers.
+	dummyStopChans := make([]chan struct{}, 3)
+	dummyListeners := make([]net.Listener, 3)
+	dummyPorts := []string{"9331", "9332", "9333"}
+	for i, port := range dummyPorts {
+		stopChan := make(chan struct{})
+		dummyStopChans[i] = stopChan
+		dummyListeners[i] = startDummyServer(port, stopChan)
+	}
+
+	// For port 9334, start a proper follower.
+	properFollower := peer.NewPeerServer(peer.Follower, "9334", "localhost", "localhost:9330", "", properDB)
+	properFollower.Start()
+
+	t.Cleanup(func() {
+		leader.Stop()
+		properFollower.Stop()
+		for _, ln := range dummyListeners {
+			ln.Close()
+		}
+		time.Sleep(100 * time.Millisecond)
+		leaderDB.Close()
+		properDB.Close()
+	})
+
+	// Send a write.
+	obj := database.StoredObject{
+		UserId:        200,
+		UserMessageID: 1,
+		Data:          "case2: quorum not met",
+	}
+	_, err = leader.StoreObjects([]database.StoredObject{obj})
+	if err == nil {
+		t.Errorf("Expected write to fail due to insufficient acks, but it succeeded")
+	} else {
+		t.Logf("Write failed as expected: %v", err)
+	}
+
+	// Verify that the write did not commit in leader or proper follower.
+	leaderObjs, err := database.GetObjects(leaderDB, 200)
+	if err != nil {
+		t.Fatalf("Leader GetObjects error: %v", err)
+	}
+	if len(leaderObjs) != 0 {
+		t.Errorf("Leader expected 0 objects; got %d", len(leaderObjs))
+	}
+	properObjs, err := database.GetObjects(properDB, 200)
+	if err != nil {
+		t.Fatalf("Proper follower GetObjects error: %v", err)
+	}
+	if len(properObjs) != 0 {
+		t.Errorf("Proper follower expected 0 objects; got %d", len(properObjs))
+	}
+}
+
+// ---------------------------------------------
+// Test Case 3: Quorum Recovery with Delayed Follower
+// ---------------------------------------------
+// Initially, three followers are dummy servers while one is dummy but recovers during retries.
+func TestQuorumReplicationCaseDelayedRecovery(t *testing.T) {
+	tempDir := t.TempDir()
+	leaderDBPath := "file:" + filepath.Join(tempDir, "leader_recovery.db")
+	err, leaderDB := database.InitDB(leaderDBPath)
+	if err != nil {
+		t.Fatalf("Leader DB init error: %v", err)
+	}
+	// Proper follower for port 9343.
+	followerDBPath1 := "file:" + filepath.Join(tempDir, "follower_recovery1.db")
+	err, properDB := database.InitDB(followerDBPath1)
+	if err != nil {
+		t.Fatalf("Proper follower DB init error: %v", err)
+	}
+	// For the delayed follower (port 9344) we will start a dummy server and later replace it.
+	followerDBPath2 := "file:" + filepath.Join(tempDir, "follower_recovery2.db")
+	err, recoverableDB := database.InitDB(followerDBPath2)
+	if err != nil {
+		t.Fatalf("Recoverable follower DB init error: %v", err)
+	}
+
+	// Leader on port 9340.
+	leader := peer.NewPeerServer(peer.Leader, "9340", "localhost", "", "localhost:9341,localhost:9342,localhost:9343,localhost:9344", leaderDB)
+	leader.Start()
+
+	// For ports 9341 and 9342, start dummy servers.
+	dummyStopChans := make([]chan struct{}, 2)
+	dummyListeners := make([]net.Listener, 2)
+	for i, port := range []string{"9341", "9342"} {
+		stopChan := make(chan struct{})
+		dummyStopChans[i] = stopChan
+		dummyListeners[i] = startDummyServer(port, stopChan)
+	}
+
+	// For port 9343, start a proper follower.
+	properFollower := peer.NewPeerServer(peer.Follower, "9343", "localhost", "localhost:9340", "", properDB)
+	properFollower.Start()
+
+	// For port 9344, initially start a dummy server.
+	recoveryStop := make(chan struct{})
+	dummyListener9344 := startDummyServer("9344", recoveryStop)
+
+	// Note: The leader's knownPeers are fixed from initialization.
+	t.Cleanup(func() {
+		leader.Stop()
+		properFollower.Stop()
+		for _, ln := range dummyListeners {
+			ln.Close()
+		}
+		// Also stop dummy on 9344 if still running.
+		dummyListener9344.Close()
+		time.Sleep(100 * time.Millisecond)
+		leaderDB.Close()
+		properDB.Close()
+		recoverableDB.Close()
+	})
+
+	// In a separate goroutine, simulate recovery: after 1 second, close the dummy on port 9344
+	// and start a proper follower there.
+	go func() {
+		time.Sleep(1 * time.Second)
+		// Stop the dummy.
+		close(recoveryStop)
+		dummyListener9344.Close()
+		// Start the proper follower on port 9344.
+		recoveredFollower := peer.NewPeerServer(peer.Follower, "9344", "localhost", "localhost:9340", "", recoverableDB)
+		recoveredFollower.Start()
+		// Keep it running for the duration of the test.
+	}()
+
+	// Send a write.
+	obj := database.StoredObject{
+		UserId:        300,
+		UserMessageID: 1,
+		Data:          "case3: delayed follower recovery",
+	}
+	if _, err := leader.StoreObjects([]database.StoredObject{obj}); err != nil {
+		t.Fatalf("Expected write to eventually succeed after recovery, but got error: %v", err)
+	}
+
+	// Allow time for replication.
+	time.Sleep(3 * time.Second)
+
+	// Verify that the write appears in leader, proper follower, and the recovered follower.
+	leaderObjs, err := database.GetObjects(leaderDB, 300)
+	if err != nil {
+		t.Fatalf("Leader GetObjects error: %v", err)
+	}
+	if len(leaderObjs) != 1 {
+		t.Errorf("Leader expected 1 object; got %d", len(leaderObjs))
+	}
+	properObjs, err := database.GetObjects(properDB, 300)
+	if err != nil {
+		t.Fatalf("Proper follower GetObjects error: %v", err)
+	}
+	if len(properObjs) != 1 {
+		t.Errorf("Proper follower expected 1 object; got %d", len(properObjs))
+	}
+	recoveredObjs, err := database.GetObjects(recoverableDB, 300)
+	if err != nil {
+		t.Fatalf("Recovered follower GetObjects error: %v", err)
+	}
+	if len(recoveredObjs) != 1 {
+		t.Errorf("Recovered follower expected 1 object; got %d", len(recoveredObjs))
 	}
 }

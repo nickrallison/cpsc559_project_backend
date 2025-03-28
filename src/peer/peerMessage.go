@@ -19,6 +19,21 @@ const (
 	Coordinator
 	Heartbeat
 	GetLamport
+	// Message types for quorum consistency
+	// For store operations:
+	PrepareStoreObject = 100
+    CommitStoreObject  = 101
+    AbortStoreObject   = 102
+
+	// For update operations:
+    PrepareUpdateObject PeerMessageType = 110
+    CommitUpdateObject  PeerMessageType = 111
+    AbortUpdateObject   PeerMessageType = 112
+
+    // For delete operations:
+    PrepareDeleteObject PeerMessageType = 120
+    CommitDeleteObject  PeerMessageType = 121
+    AbortDeleteObject   PeerMessageType = 122
 )
 
 // InternalData holds extra metadata.

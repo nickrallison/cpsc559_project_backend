@@ -144,11 +144,11 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 	switch pm.Type {
 	case GetObject:
 		ps.handleGetObject(conn, pm)
-	case StoreObject:
+	case StoreObject, PrepareStoreObject, CommitStoreObject, AbortStoreObject:
 		ps.handleStoreObject(conn, pm)
-	case UpdateObject:
+	case UpdateObject, PrepareUpdateObject, CommitUpdateObject, AbortUpdateObject:
 		ps.handleUpdateObject(conn, pm)
-	case DeleteObject:
+	case DeleteObject, PrepareDeleteObject, CommitDeleteObject, AbortDeleteObject:
 		ps.handleDeleteObject(conn, pm)
 	case Election:
 		// Leader election: compare addresses (used as priority) to decide which node should lead
@@ -285,32 +285,60 @@ func (ps *PeerServer) handleStoreObject(conn net.Conn, pm PeerMessage) {
 			log.Printf("Error encoding response in StoreObject (leader): %v", err)
 		}
 	} else if ps.Role == Follower {
-		// When acting as follower, check whether the request came from the leader.
-		if pm.Metadata.Sender == ps.LeaderAddr {
-			// The update is coming from the leader
-			ps.LamportClock = max(ps.LamportClock, pm.Timestamp)
-			log.Printf("DEBUG: Follower applying store from leader; updated clock to %d", ps.LamportClock)
-			ps.EnqueueMessage(pm)
-
-			// Send ACK back to leader
-			 ack := AckMessage{
+		switch pm.Type {
+        case PrepareStoreObject:
+            // Do not apply- just respond with a prepared ack
+            ack := AckMessage{
+                Status:    "PREPARED",
+                Timestamp: pm.Timestamp,
+            }
+            if err := enc.Encode(ack); err != nil {
+                log.Printf("Error encoding PREPARED ack: %v", err)
+            }
+        case CommitStoreObject:
+            // Now commit the update
+            ps.LamportClock = max(ps.LamportClock, pm.Timestamp)
+            ps.EnqueueMessage(pm)
+            ack := AckMessage{
                 Status:    "OK",
                 Timestamp: pm.Timestamp,
             }
             if err := enc.Encode(ack); err != nil {
-                log.Printf("Error encoding ACK in StoreObject (follower applying update): %v", err)
+                log.Printf("Error encoding commit ack: %v", err)
             }
-		} else {
-			//Otherwise, forward the request to the leader
-			respMap, err := ps.ForwardRequestToLeader(pm)
-			if err != nil {
-				log.Printf("Follower failed to forward store to leader: %v", err)
-				enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
-				return
-			}
-			if err := enc.Encode(respMap); err != nil {
-				log.Printf("Error encoding response in StoreObject (follower forwarding): %v", err)
-			}
+        case AbortStoreObject:
+            // Update is aborted- simply acknowledge
+            ack := AckMessage{
+                Status:    "ABORTED",
+                Timestamp: pm.Timestamp,
+            }
+            if err := enc.Encode(ack); err != nil {
+                log.Printf("Error encoding abort ack: %v", err)
+            }
+        default:
+            // For backward compatibility, if a normal StoreObject message is received:
+            if pm.Metadata.Sender == ps.LeaderAddr {
+                ps.LamportClock = max(ps.LamportClock, pm.Timestamp)
+                ps.EnqueueMessage(pm)
+                ack := AckMessage{
+                    Status:    "OK",
+                    Timestamp: pm.Timestamp,
+                }
+                if err := enc.Encode(ack); err != nil {
+                    log.Printf("Error encoding ACK in StoreObject (follower applying update): %v", err)
+                }
+            } else {
+                // Otherwise, forward the request to the leader
+                respMap, err := ps.ForwardRequestToLeader(pm)
+                if err != nil {
+                    log.Printf("Follower failed to forward store to leader: %v", err)
+                    enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
+                    return
+                }
+                if err := enc.Encode(respMap); err != nil {
+                    log.Printf("Error encoding response in StoreObject (follower forwarding): %v", err)
+                }
+            }
 		}
 	}
 }
@@ -324,92 +352,197 @@ func (ps *PeerServer) handleUpdateObject(conn net.Conn, pm PeerMessage) {
 	if ps.Role == Leader {
 		ps.LamportClock++
 		pm.Timestamp = ps.LamportClock
-		log.Printf("DEBUG: Leader updating object, new timestamp %d", pm.Timestamp)
-		ps.EnqueueMessage(pm)
+		
+        // Phase 1: Prepare update
+		prepareMsg := PeerMessage{
+			Type:      PrepareUpdateObject,
+			Data:      pm.Data,
+			Timestamp: pm.Timestamp,
+			Metadata:  InternalData{Sender: ps.PeerAddr},
+		}
+		if err := ps.replicateWithRetry(prepareMsg); err != nil {
+			// Phase 1 failed: send abort messages
+			abortMsg := PeerMessage{
+				Type:      AbortUpdateObject,
+				Data:      pm.Data,
+				Timestamp: pm.Timestamp,
+				Metadata:  InternalData{Sender: ps.PeerAddr},
+			}
+			for _, addr := range ps.knownPeers {
+				go func(peerAddr string) {
+					_ = ps.pushUpdateToPeer(peerAddr, abortMsg)
+				}(addr)
+			}
+			resp := map[string]string{"status": "ERROR", "message": err.Error()}
+			_ = enc.Encode(resp)
+			return
+		}
+
+        // Phase 2: Commit update
+		commitMsg := PeerMessage{
+			Type:      CommitUpdateObject,
+			Data:      pm.Data,
+			Timestamp: pm.Timestamp,
+			Metadata:  InternalData{Sender: ps.PeerAddr},
+		}
 		for _, addr := range ps.knownPeers {
 			go func(peerAddr string) {
-				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
-					log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
-				}
+				_ = ps.pushUpdateToPeer(peerAddr, commitMsg)
 			}(addr)
 		}
+		ps.EnqueueMessage(commitMsg)
 		resp := map[string]string{"status": "OK"}
-		if err := enc.Encode(resp); err != nil {
-			log.Printf("Error encoding response in UpdateObject (leader): %v", err)
-		}
+		_ = enc.Encode(resp)
 	} else if ps.Role == Follower {
-		if pm.Metadata.Sender == ps.LeaderAddr {
-			ps.LamportClock = max(ps.LamportClock, pm.Timestamp)
-			log.Printf("DEBUG: Follower updating object from leader; updated clock to %d", ps.LamportClock)
-			ps.EnqueueMessage(pm)
-			 // Send ACK response to leader
-			 ack := AckMessage{
-                Status:    "OK",
-                Timestamp: pm.Timestamp,
+		// Expect messages coming from the leader
+        if pm.Metadata.Sender == ps.LeaderAddr {
+            switch pm.Type {
+            case PrepareUpdateObject:
+                // Do not apply - just respond with a prepared acknowledgment
+                ack := AckMessage{Status: "PREPARED", Timestamp: pm.Timestamp}
+                if err := enc.Encode(ack); err != nil {
+                    log.Printf("Error encoding update PREPARED ack: %v", err)
+                }
+            case CommitUpdateObject:
+                // Now apply the update
+                ps.LamportClock = max(ps.LamportClock, pm.Timestamp)
+                ps.EnqueueMessage(pm)
+                ack := AckMessage{Status: "OK", Timestamp: pm.Timestamp}
+                if err := enc.Encode(ack); err != nil {
+                    log.Printf("Error encoding update commit ack: %v", err)
+                }
+            case AbortUpdateObject:
+                // Acknowledge abort
+                ack := AckMessage{Status: "ABORTED", Timestamp: pm.Timestamp}
+                if err := enc.Encode(ack); err != nil {
+                    log.Printf("Error encoding update abort ack: %v", err)
+                }
+            default:
+                // Fallback: forward to leader
+                respMap, err := ps.ForwardRequestToLeader(pm)
+                if err != nil {
+                    log.Printf("Follower failed to forward update to leader: %v", err)
+                    enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
+                    return
+                }
+                if err := enc.Encode(respMap); err != nil {
+                    log.Printf("Error encoding update response in follower forwarding: %v", err)
+                }
             }
-            if err := enc.Encode(ack); err != nil {
-                log.Printf("Error encoding ACK in StoreObject (follower applying update): %v", err)
+        } else {
+            // Not from leader then forward
+            respMap, err := ps.ForwardRequestToLeader(pm)
+            if err != nil {
+                log.Printf("Follower failed to forward update to leader: %v", err)
+                enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
+                return
             }
-		} else {
-			// Forward the update request to the leader.
-			respMap, err := ps.ForwardRequestToLeader(pm)
-			if err != nil {
-				log.Printf("Follower failed to forward update to leader: %v", err)
-				enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
-				return
-			}
-			if err := enc.Encode(respMap); err != nil {
-				log.Printf("Error encoding response in UpdateObject (follower forwarding): %v", err)
-			}
-		}
-	}
+            if err := enc.Encode(respMap); err != nil {
+                log.Printf("Error encoding update response in follower forwarding: %v", err)
+            }
+        }
+    }
 }
 
-// handleDeleteObject processes a DeleteObject request.
+// handleDeleteObject processes a DeleteObject request
 func (ps *PeerServer) handleDeleteObject(conn net.Conn, pm PeerMessage) {
 	enc := json.NewEncoder(conn)
 	if ps.Role == Leader {
 		ps.LamportClock++
 		pm.Timestamp = ps.LamportClock
-		log.Printf("DEBUG: Leader deleting object, new timestamp %d", pm.Timestamp)
-		ps.EnqueueMessage(pm)
+		// Phase 1: Prepare delete
+		prepareMsg := PeerMessage{
+			Type:      PrepareDeleteObject,
+			Data:      pm.Data,
+			Timestamp: pm.Timestamp,
+			Metadata:  InternalData{Sender: ps.PeerAddr},
+		}
+		if err := ps.replicateWithRetry(prepareMsg); err != nil {
+			abortMsg := PeerMessage{
+				Type:      AbortDeleteObject,
+				Data:      pm.Data,
+				Timestamp: pm.Timestamp,
+				Metadata:  InternalData{Sender: ps.PeerAddr},
+			}
+			for _, addr := range ps.knownPeers {
+				go func(peerAddr string) {
+					_ = ps.pushUpdateToPeer(peerAddr, abortMsg)
+				}(addr)
+			}
+			resp := map[string]string{"status": "ERROR", "message": err.Error()}
+			_ = enc.Encode(resp)
+			return
+		}
+
+        // Phase 2: Commit delete
+		commitMsg := PeerMessage{
+			Type:      CommitDeleteObject,
+			Data:      pm.Data,
+			Timestamp: pm.Timestamp,
+			Metadata:  InternalData{Sender: ps.PeerAddr},
+		}
 		for _, addr := range ps.knownPeers {
 			go func(peerAddr string) {
-				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
-					log.Printf("Leader failed to push delete to follower %s: %v", peerAddr, err)
-				}
+				_ = ps.pushUpdateToPeer(peerAddr, commitMsg)
 			}(addr)
 		}
+		ps.EnqueueMessage(commitMsg)
 		resp := map[string]string{"status": "OK"}
-		if err := enc.Encode(resp); err != nil {
-			log.Printf("Error encoding response in DeleteObject (leader): %v", err)
-		}
+		_ = enc.Encode(resp)
 	} else if ps.Role == Follower {
 		if pm.Metadata.Sender == ps.LeaderAddr {
-			ps.LamportClock = max(ps.LamportClock, pm.Timestamp)
-			log.Printf("DEBUG: Follower deleting object from leader; updated clock to %d", ps.LamportClock)
-			ps.EnqueueMessage(pm)
-			 // Send ACK response to leader
-			 ack := AckMessage{
-                Status:    "OK",
-                Timestamp: pm.Timestamp,
+            switch pm.Type {
+            case PrepareDeleteObject:
+                ack := AckMessage{Status: "PREPARED", Timestamp: pm.Timestamp}
+                if err := enc.Encode(ack); err != nil {
+                    log.Printf("Error encoding delete PREPARED ack: %v", err)
+                }
+            case CommitDeleteObject:
+                ps.LamportClock = max(ps.LamportClock, pm.Timestamp)
+                ps.EnqueueMessage(pm)
+                ack := AckMessage{Status: "OK", Timestamp: pm.Timestamp}
+                if err := enc.Encode(ack); err != nil {
+                    log.Printf("Error encoding delete commit ack: %v", err)
+                }
+            case AbortDeleteObject:
+                ack := AckMessage{Status: "ABORTED", Timestamp: pm.Timestamp}
+                if err := enc.Encode(ack); err != nil {
+                    log.Printf("Error encoding delete abort ack: %v", err)
+                }
+            default:
+                // Fallback: if a normal delete message is received, apply it
+                if pm.Metadata.Sender == ps.LeaderAddr {
+                    ps.LamportClock = max(ps.LamportClock, pm.Timestamp)
+                    ps.EnqueueMessage(pm)
+                    ack := AckMessage{Status: "OK", Timestamp: pm.Timestamp}
+                    if err := enc.Encode(ack); err != nil {
+                        log.Printf("Error encoding ACK in DeleteObject (follower applying update): %v", err)
+                    }
+                } else {
+                    respMap, err := ps.ForwardRequestToLeader(pm)
+                    if err != nil {
+                        log.Printf("Follower failed to forward delete to leader: %v", err)
+                        enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
+                        return
+                    }
+                    if err := enc.Encode(respMap); err != nil {
+                        log.Printf("Error encoding response in DeleteObject (follower forwarding): %v", err)
+                    }
+                }
             }
-            if err := enc.Encode(ack); err != nil {
-                log.Printf("Error encoding ACK in StoreObject (follower applying update): %v", err)
+        } else {
+            // Forward to leader
+            respMap, err := ps.ForwardRequestToLeader(pm)
+            if err != nil {
+                log.Printf("Follower failed to forward delete to leader: %v", err)
+                enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
+                return
             }
-		} else {
-			// Forward the delete request to the leader.
-			respMap, err := ps.ForwardRequestToLeader(pm)
-			if err != nil {
-				log.Printf("Follower failed to forward delete to leader: %v", err)
-				enc.Encode(map[string]string{"status": "ERROR", "message": err.Error()})
-				return
-			}
-			if err := enc.Encode(respMap); err != nil {
-				log.Printf("Error encoding response in DeleteObject (follower forwarding): %v", err)
-			}
-		}
-	}
+            if err := enc.Encode(respMap); err != nil {
+                log.Printf("Error encoding response in DeleteObject (follower forwarding): %v", err)
+            }
+        }
+    }
 }
 
 // pushUpdateToPeer is used by the leader to replicate a write update to a follower
@@ -432,9 +565,20 @@ func (ps *PeerServer) pushUpdateToPeer(addr string, pm PeerMessage) error {
         return fmt.Errorf("failed to decode ack: %v", err)
     }
     
-    if ack.Status != "OK" || ack.Timestamp != pm.Timestamp {
-        return fmt.Errorf("follower failed to ack message properly")
-    }
+     // Determine the expected status based on the message type
+	 expectedStatus := "OK" // default
+	 switch pm.Type {
+	 case PrepareStoreObject, PrepareUpdateObject, PrepareDeleteObject:
+		 expectedStatus = "PREPARED"
+	 case CommitStoreObject, CommitUpdateObject, CommitDeleteObject:
+		 expectedStatus = "OK"
+	 case AbortStoreObject, AbortUpdateObject, AbortDeleteObject:
+		 expectedStatus = "ABORTED"
+	 }
+ 
+	 if ack.Status != expectedStatus || ack.Timestamp != pm.Timestamp {
+		 return fmt.Errorf("follower failed to ack message properly (got %q, expected %q)", ack.Status, expectedStatus)
+	 }
 	return nil
 }
 
@@ -467,7 +611,7 @@ func (ps *PeerServer) ForwardRequestToLeader(pm PeerMessage) (map[string]string,
 // Helper Methods for httpServer
 /////////////////////////////////////////////////////////////////////////
 
-// GetObjects returns all objects for the given user by reading locally.
+// GetObjects returns all objects for the given user by reading locally
 func (ps *PeerServer) GetObjects(userId int) ([]database.StoredObject, error) {
 	return database.GetObjects(ps.DB, userId)
 }
@@ -495,70 +639,50 @@ func (ps *PeerServer) StoreObjects(objs []database.StoredObject) (map[string]str
             lastResp = resp
         }
         return lastResp, nil
-    } else if ps.Role == Leader {
-        // Calculate the quorum size (majority of nodes including leader)
-        quorumSize := (len(ps.knownPeers)) / 2
-        
+    } else if ps.Role == Leader {  
         for _, obj := range objs {
             ps.LamportClock++
             currentTs := ps.LamportClock
-            pm := PeerMessage{Type: StoreObject, Data: obj, Timestamp: currentTs}
             log.Printf("DEBUG: Leader storing batch object, timestamp %d", currentTs)
-            
-            // Enqueue the message locally (counts as 1 acknowledgment)
-            ps.EnqueueMessage(pm)
-            ackCount := 1 // Leader counts as one ACK
 
-			// Create a channel to collect acknowledgments
-            ackChan := make(chan bool, len(ps.knownPeers))
-            var wg sync.WaitGroup
-            
-            // Push update to followers in parallel
+             // Phase 1: Prepare
+			 prepareMsg := PeerMessage{
+                Type:      PrepareStoreObject,
+                Data:      obj,
+                Timestamp: currentTs,
+                Metadata:  InternalData{Sender: ps.PeerAddr},
+            }
+            if err := ps.replicateWithRetry(prepareMsg); err != nil {
+                // Send abort messages to live followers
+                abortMsg := PeerMessage{
+                    Type:      AbortStoreObject,
+                    Data:      obj,
+                    Timestamp: currentTs,
+                    Metadata:  InternalData{Sender: ps.PeerAddr},
+                }
+                for _, addr := range ps.knownPeers {
+                    go func(peerAddr string) {
+                        _ = ps.pushUpdateToPeer(peerAddr, abortMsg)
+                    }(addr)
+                }
+                return nil, err
+            }
+
+            // Phase 2: Commit – send commit messages
+            commitMsg := PeerMessage{
+                Type:      CommitStoreObject,
+                Data:      obj,
+                Timestamp: currentTs,
+                Metadata:  InternalData{Sender: ps.PeerAddr},
+            }
             for _, addr := range ps.knownPeers {
-                wg.Add(1)
                 go func(peerAddr string) {
-                    defer wg.Done()
-                    if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
-                        log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
-                        ackChan <- false
-                    } else {
-                        ackChan <- true
-                    }
+                    _ = ps.pushUpdateToPeer(peerAddr, commitMsg)
                 }(addr)
             }
-            
-            // Wait for acknowledgments in a separate goroutine, close ackChan once all go routines finish
-            go func() {
-                wg.Wait()
-                close(ackChan)
-            }()
-            
-            // Count acknowledgments until we reach quorum or timeout
-            timeout := time.After(5 * time.Second)
-        ackLoop:
-            for {
-                select {
-                case ack, ok := <-ackChan:
-                    if !ok {
-                        break ackLoop // All followers responded
-                    }
-                    if ack {
-                        ackCount++
-                        if ackCount >= quorumSize {
-                            break ackLoop // Quorum reached
-                        }
-                    }
-                case <-timeout:
-                    log.Printf("Timeout waiting for quorum acknowledgments")
-                    break ackLoop
-                }
-            }
-            
-            if ackCount < quorumSize {
-                return nil, fmt.Errorf("failed to achieve quorum (%d/%d nodes responded)", ackCount, quorumSize)
-            }
-            
-            log.Printf("DEBUG: Achieved quorum (%d/%d) for write at timestamp %d", ackCount, quorumSize, currentTs)
+             // Commit locally
+			 ps.EnqueueMessage(commitMsg)
+
         }
         
         return map[string]string{"status": "OK"}, nil
@@ -575,66 +699,45 @@ func (ps *PeerServer) UpdateObject(obj database.StoredObject) (map[string]string
     } else if ps.Role == Leader {
         ps.LamportClock++
         currentTs := ps.LamportClock
-        pm := PeerMessage{Type: UpdateObject, Data: obj, Timestamp: currentTs}
-        log.Printf("DEBUG: Leader updating object, timestamp %d", currentTs)
-        
-        // Calculate quorum size (majority of nodes including leader)
-        quorumSize := (len(ps.knownPeers)) / 2
-        
-        // Enqueue locally (counts as 1 ack)
-        ps.EnqueueMessage(pm)
-        ackCount := 1
-        
-        // Create channel for acknowledgments
-        ackChan := make(chan bool, len(ps.knownPeers))
-        var wg sync.WaitGroup
-        
-        // Push to followers in parallel
+     
+        // Phase 1: Prepare update
+        prepareMsg := PeerMessage{
+            Type:      PrepareUpdateObject,
+            Data:      obj,
+            Timestamp: currentTs,
+            Metadata:  InternalData{Sender: ps.PeerAddr},
+        }
+        if err := ps.replicateWithRetry(prepareMsg); err != nil {
+            // On failure, send abort messages
+            abortMsg := PeerMessage{
+                Type:      AbortUpdateObject,
+                Data:      obj,
+                Timestamp: currentTs,
+                Metadata:  InternalData{Sender: ps.PeerAddr},
+            }
+            for _, addr := range ps.knownPeers {
+                go func(peerAddr string) {
+                    _ = ps.pushUpdateToPeer(peerAddr, abortMsg)
+                }(addr)
+            }
+            return nil, fmt.Errorf("failed to achieve quorum for update: %v", err)
+        }
+
+        // Phase 2: Commit update
+        commitMsg := PeerMessage{
+            Type:      CommitUpdateObject,
+            Data:      obj,
+            Timestamp: currentTs,
+            Metadata:  InternalData{Sender: ps.PeerAddr},
+        }
         for _, addr := range ps.knownPeers {
-            wg.Add(1)
             go func(peerAddr string) {
-                defer wg.Done()
-                if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
-                    log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
-                    ackChan <- false
-                } else {
-                    ackChan <- true
-                }
+                _ = ps.pushUpdateToPeer(peerAddr, commitMsg)
             }(addr)
         }
-        
-        // Wait for acks in separate goroutine
-        go func() {
-            wg.Wait()
-            close(ackChan)
-        }()
-        
-        // Count acknowledgments
-        timeout := time.After(5 * time.Second)
-    ackLoop:
-        for {
-            select {
-            case ack, ok := <-ackChan:
-                if !ok {
-                    break ackLoop // All responses received
-                }
-                if ack {
-                    ackCount++
-                    if ackCount >= quorumSize {
-                        break ackLoop // Quorum achieved
-                    }
-                }
-            case <-timeout:
-                log.Printf("Timeout waiting for quorum acknowledgments")
-                break ackLoop
-            }
-        }
-        
-        if ackCount < quorumSize {
-            return nil, fmt.Errorf("failed to achieve quorum (%d/%d nodes responded)", ackCount, quorumSize)
-        }
-        
-        log.Printf("DEBUG: Achieved quorum (%d/%d) for update at timestamp %d", ackCount, quorumSize, currentTs)
+        // Commit locally
+        ps.EnqueueMessage(commitMsg)
+        log.Printf("DEBUG: Achieved quorum for update at timestamp %d", currentTs)
         return map[string]string{"status": "OK"}, nil
     }
     return nil, fmt.Errorf("invalid role")
@@ -648,73 +751,133 @@ func (ps *PeerServer) DeleteObject(userId int, userMessageId int) (map[string]st
     } else if ps.Role == Leader {
         ps.LamportClock++
         currentTs := ps.LamportClock
-        pm := PeerMessage{
-            Type: DeleteObject, 
-            Data: database.StoredObject{UserId: userId, UserMessageID: userMessageId},
-            Timestamp: currentTs,
+      // Phase 1: Prepare delete
+	  prepareMsg := PeerMessage{
+		Type:      PrepareDeleteObject,
+		Data:      database.StoredObject{UserId: userId, UserMessageID: userMessageId},
+		Timestamp: currentTs,
+		Metadata:  InternalData{Sender: ps.PeerAddr},
+	}
+	if err := ps.replicateWithRetry(prepareMsg); err != nil {
+		// Send abort messages on failure
+		abortMsg := PeerMessage{
+			Type:      AbortDeleteObject,
+			Data:      database.StoredObject{UserId: userId, UserMessageID: userMessageId},
+			Timestamp: currentTs,
+			Metadata:  InternalData{Sender: ps.PeerAddr},
+		}
+		for _, addr := range ps.knownPeers {
+			go func(peerAddr string) {
+				_ = ps.pushUpdateToPeer(peerAddr, abortMsg)
+			}(addr)
+		}
+		return nil, fmt.Errorf("failed to achieve quorum for delete: %v", err)
+	}
+
+	// Phase 2: Commit delete
+	commitMsg := PeerMessage{
+		Type:      CommitDeleteObject,
+		Data:      database.StoredObject{UserId: userId, UserMessageID: userMessageId},
+		Timestamp: currentTs,
+		Metadata:  InternalData{Sender: ps.PeerAddr},
+	}
+	for _, addr := range ps.knownPeers {
+		go func(peerAddr string) {
+			_ = ps.pushUpdateToPeer(peerAddr, commitMsg)
+		}(addr)
+	}
+	// Commit locally
+	ps.EnqueueMessage(commitMsg)
+	log.Printf("DEBUG: Achieved quorum for delete at timestamp %d", currentTs)
+	return map[string]string{"status": "OK"}, nil
+}
+    return nil, fmt.Errorf("invalid role")
+}
+
+// isPeerAlive attempts to establish a TCP connection with the given address
+// It returns true if the peer is reachable within the timeout
+func (ps *PeerServer) isPeerAlive(addr string) bool {
+    conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+    if err != nil {
+        return false
+    }
+    conn.Close()
+    return true
+}
+
+// replicateWithRetry sends the update to all live followers and retries up to 3 times
+// It computes the required quorum based solely on nodes that are alive (plus the leader)
+func (ps *PeerServer) replicateWithRetry(pm PeerMessage) error {
+    maxRetries := 3
+    var lastAckCount int
+
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        // Build a list of live followers
+        livePeers := []string{}
+        for _, peerAddr := range ps.knownPeers {
+            if ps.isPeerAlive(peerAddr) {
+                livePeers = append(livePeers, peerAddr)
+            }
         }
-        log.Printf("DEBUG: Leader deleting object, timestamp %d", currentTs)
-        
-        // Calculate quorum size (majority of nodes including leader)
-        quorumSize := (len(ps.knownPeers)) / 2
-        
-        // Enqueue locally (counts as 1 ack)
-        ps.EnqueueMessage(pm)
+        // Leader is always online.
+        totalOnline := len(livePeers) + 1
+        // Required quorum is majority of online nodes
+        requiredQuorum := (totalOnline / 2) + 1
+
+        // Start with leader's own "ack"
         ackCount := 1
-        
-        // Create channel for acknowledgments
-        ackChan := make(chan bool, len(ps.knownPeers))
+        ackChan := make(chan bool, len(livePeers))
         var wg sync.WaitGroup
-        
-        // Push to followers in parallel
-        for _, addr := range ps.knownPeers {
+
+        // Push the update only to live peers
+        for _, addr := range livePeers {
             wg.Add(1)
             go func(peerAddr string) {
                 defer wg.Done()
                 if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
-                    log.Printf("Leader failed to push delete to follower %s: %v", peerAddr, err)
+                    log.Printf("Attempt %d: failed to push update to follower %s: %v", attempt+1, peerAddr, err)
                     ackChan <- false
                 } else {
                     ackChan <- true
                 }
             }(addr)
         }
-        
-        // Wait for acks in separate goroutine
+
+        // Close channel once all routines are done
         go func() {
             wg.Wait()
             close(ackChan)
         }()
-        
-        // Count acknowledgments
+
         timeout := time.After(5 * time.Second)
     ackLoop:
         for {
             select {
             case ack, ok := <-ackChan:
                 if !ok {
-                    break ackLoop // All responses received
+                    break ackLoop
                 }
                 if ack {
                     ackCount++
-                    if ackCount >= quorumSize {
-                        break ackLoop // Quorum achieved
+                    if ackCount >= requiredQuorum {
+                        break ackLoop
                     }
                 }
             case <-timeout:
-                log.Printf("Timeout waiting for quorum acknowledgments")
+                log.Printf("Attempt %d: timeout waiting for quorum acknowledgments", attempt+1)
                 break ackLoop
             }
         }
-        
-        if ackCount < quorumSize {
-            return nil, fmt.Errorf("failed to achieve quorum (%d/%d nodes responded)", ackCount, quorumSize)
+        lastAckCount = ackCount
+
+        if ackCount >= requiredQuorum {
+            log.Printf("Achieved quorum on attempt %d (%d/%d acks)", attempt+1, ackCount, requiredQuorum)
+            return nil
         }
-        
-        log.Printf("DEBUG: Achieved quorum (%d/%d) for delete at timestamp %d", ackCount, quorumSize, currentTs)
-        return map[string]string{"status": "OK"}, nil
+        log.Printf("Attempt %d: quorum not reached (%d/%d acks). Retrying...", attempt+1, ackCount, requiredQuorum)
+        time.Sleep(100 * time.Millisecond) // Brief backoff before retrying
     }
-    return nil, fmt.Errorf("invalid role")
+    return fmt.Errorf("failed to achieve quorum after %d attempts: only %d of %d online nodes agreed", maxRetries, lastAckCount, len(ps.knownPeers)+1)
 }
 
 // SynchronizeWithLeader is called by a follower to ensure its local state is up-to-date with the leader
@@ -1249,15 +1412,15 @@ func (ps *PeerServer) processQueue() {
 // applyMessage applies the database operation based on the message type
 func (ps *PeerServer) applyMessage(pm PeerMessage) {
 	switch pm.Type {
-	case StoreObject:
+	case StoreObject, CommitStoreObject:
 		if _, err := database.InsertObject(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data); err != nil {
 			log.Printf("applyMessage: error storing object: %v", err)
 		}
-	case UpdateObject:
+	case UpdateObject, CommitUpdateObject:
 		if _, err := database.UpdateObjects(ps.DB, pm.Data.UserId, pm.Data.UserMessageID, pm.Data.Data); err != nil {
 			log.Printf("applyMessage: error updating object: %v", err)
 		}
-	case DeleteObject:
+	case DeleteObject, CommitDeleteObject:
 		if _, err := database.DeleteObject(ps.DB, pm.Data.UserId, pm.Data.UserMessageID); err != nil {
 			log.Printf("applyMessage: error deleting object: %v", err)
 		}
