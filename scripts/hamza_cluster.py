@@ -14,8 +14,8 @@ import os
 
 def main():
     # Replace these with your actual Tailscale addresses.
-    machine1_ip = "100.81.146.3"
-    machine2_ip = "100.103.172.113"
+    machine1_ip = "100.107.193.70"
+    machine2_ip = "100.108.241.106"
 
     # Define the full peers list for the cluster:
     # - Follower on machine1 (local) will use port 9001.

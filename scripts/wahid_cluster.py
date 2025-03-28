@@ -14,8 +14,8 @@ import os
 
 def main():
     # Replace these with your actual Tailscale addresses.
-    machine2_ip = "100.103.172.113"
-    machine1_ip = "100.81.146.3"
+    machine2_ip = "100.107.193.70"
+    machine1_ip = "100.108.241.106"
 
     # The full peers list (must match the one used by all nodes):
     peers_list = f"{machine1_ip}:9001,{machine2_ip}:9002,{machine2_ip}:9003"
