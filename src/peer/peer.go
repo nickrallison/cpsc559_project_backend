@@ -342,10 +342,14 @@ func (ps *PeerServer) handleUpdateObject(conn net.Conn, pm PeerMessage) {
 			ps.lamportClock = max(ps.lamportClock, pm.Timestamp)
 			log.Printf("DEBUG: Follower updating object from leader; updated clock to %d", ps.lamportClock)
 			ps.enqueueMessage(pm)
-			resp := map[string]string{"status": "OK"}
-			if err := enc.Encode(resp); err != nil {
-				log.Printf("Error encoding response in UpdateObject (follower applying update): %v", err)
-			}
+			 // Send ACK response to leader
+			 ack := AckMessage{
+                Status:    "OK",
+                Timestamp: pm.Timestamp,
+            }
+            if err := enc.Encode(ack); err != nil {
+                log.Printf("Error encoding ACK in StoreObject (follower applying update): %v", err)
+            }
 		} else {
 			// Forward the update request to the leader.
 			respMap, err := ps.ForwardRequestToLeader(pm)
@@ -394,10 +398,14 @@ func (ps *PeerServer) handleDeleteObject(conn net.Conn, pm PeerMessage) {
 			ps.lamportClock = max(ps.lamportClock, pm.Timestamp)
 			log.Printf("DEBUG: Follower deleting object from leader; updated clock to %d", ps.lamportClock)
 			ps.enqueueMessage(pm)
-			resp := map[string]string{"status": "OK"}
-			if err := enc.Encode(resp); err != nil {
-				log.Printf("Error encoding response in DeleteObject (follower applying update): %v", err)
-			}
+			 // Send ACK response to leader
+			 ack := AckMessage{
+                Status:    "OK",
+                Timestamp: pm.Timestamp,
+            }
+            if err := enc.Encode(ack); err != nil {
+                log.Printf("Error encoding ACK in StoreObject (follower applying update): %v", err)
+            }
 		} else {
 			// Forward the delete request to the leader.
 			respMap, err := ps.ForwardRequestToLeader(pm)

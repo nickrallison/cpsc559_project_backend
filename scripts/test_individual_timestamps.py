@@ -38,7 +38,7 @@ def send_tcp_message(addr, message):
 def get_lamport(node_name):
     addr = NODES[node_name]
     msg = {
-        "Type": 10,
+        "Type": 11,
         "Data": {},
         "Timestamp": 0,
         "Metadata": {"Sender": ""}
@@ -60,7 +60,7 @@ def send_store_request(target_node, user_id):
         "data": payload
     }
     msg = {
-        "Type": 1,  # StoreObject
+        "Type": 2,  # StoreObject
         "Data": so,
         "Timestamp": 0,  # Initially 0; the server(s) will update it.
         "Metadata": {"Sender": ""}
