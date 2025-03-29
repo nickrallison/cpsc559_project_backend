@@ -41,19 +41,19 @@ def get_stored_objects(user_id):
 def main():
     messages = [
         {
-            "Type": 1, 
+            "Type": 2, 
             "Data": {"user_id": 1, "user_message_id": 3, "data": "third update"},
             "Timestamp": 3,
             "Metadata": {"Sender": LEADER_ADDR, "PeerToAdd": ""}
         },
         {
-            "Type": 1, 
+            "Type": 2, 
             "Data": {"user_id": 1, "user_message_id": 1, "data": "first update"},
             "Timestamp": 1,
             "Metadata": {"Sender": LEADER_ADDR, "PeerToAdd": ""}
         },
         {
-            "Type": 1, 
+            "Type": 2, 
             "Data": {"user_id": 1, "user_message_id": 2, "data": "second update"},
             "Timestamp": 2,
             "Metadata": {"Sender": LEADER_ADDR, "PeerToAdd": ""}
