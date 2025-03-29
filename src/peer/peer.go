@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/rand"
 	"sync"
+    "bufio"
 
 )
 
@@ -196,6 +197,7 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
         log.Printf("[%s] Received heartbeat from %s", ps.PeerAddr, pm.Metadata.Sender)
         return
 	case GetLamport:
+        ps.flushQueue() // Flush pending messages to update the clock
 		// Return the current Lamport clock to the requester
 		enc := json.NewEncoder(conn)
 		resp := map[string]interface{}{
@@ -208,20 +210,25 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 		// For synchronization: return all updates with timestamp greater than the requested StartTime
 		log.Printf("Leader received sync request from %s for updates after %d", 
 			pm.Metadata.Sender, pm.Metadata.StartTime)
+
+        // Flush any pending messages to ensure updateLog is up-to-date.
+        ps.flushQueue()
 		
 		updates, err := ps.getUpdatesSince(pm.Metadata.StartTime)
 		if err != nil {
 			log.Printf("Error getting updates: %v", err)
 			return
 		}
-		
-		enc := json.NewEncoder(conn)
+		// Wrap the connection with a buffered writer
+        bw := bufio.NewWriter(conn)
+		enc := json.NewEncoder(bw)
 		for _, update := range updates {
 			if err := enc.Encode(update); err != nil {
 				log.Printf("Failed to send update to follower: %v", err)
 				return
 			}
 		}
+        bw.Flush() // Ensure all data is sent
 		log.Printf("Sent %d updates to %s", len(updates), pm.Metadata.Sender)
 	
     default:
@@ -887,50 +894,58 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
         return nil
     }
 
-    // Create a new connection for the synchronization session
+    // --- First connection: Get the leader's state ---
     conn, err := net.DialTimeout("tcp", ps.LeaderAddr, 5*time.Second)
     if err != nil {
         return fmt.Errorf("failed to connect to leader: %v", err)
     }
-    defer conn.Close()
-
-    // Set up encoder/decoder with buffer control
     enc := json.NewEncoder(conn)
     dec := json.NewDecoder(conn)
-    
-    // First get the leader's current state
+
+    // Request leader’s current lamport clock
+    if err := enc.Encode(PeerMessage{Type: GetLamport}); err != nil {
+        conn.Close()
+        return fmt.Errorf("failed to send GetLamport request: %v", err)
+    }
+
     leaderState := struct {
         Lamport    int64 `json:"lamport"`
         LastUpdate int64 `json:"last_update"`
     }{}
 
-    if err := enc.Encode(PeerMessage{Type: GetLamport}); err != nil {
-        return fmt.Errorf("failed to send GetLamport request: %v", err)
-    }
-
     if err := dec.Decode(&leaderState); err != nil {
+        conn.Close()
         return fmt.Errorf("failed to decode leader state: %v", err)
     }
+    conn.Close() // Close the connection after handling the first request
 
-    // Check if we're already synchronized
+    // If already synchronized, nothing to do.
     if ps.LamportClock >= leaderState.Lamport {
-        log.Printf("DEBUG: Already synchronized (local:%d leader:%d)", 
+        log.Printf("DEBUG: Already synchronized (local:%d leader:%d)",
             ps.LamportClock, leaderState.Lamport)
         return nil
     }
 
-    log.Printf("DEBUG: Starting synchronization (local:%d leader:%d)", 
+    log.Printf("DEBUG: Starting synchronization (local:%d leader:%d)",
         ps.LamportClock, leaderState.Lamport)
 
-    // Request missing updates starting from our last timestamp + 1
+    // --- Second connection: Get the missing updates ---
+    conn, err = net.DialTimeout("tcp", ps.LeaderAddr, 5*time.Second)
+    if err != nil {
+        return fmt.Errorf("failed to reconnect to leader: %v", err)
+    }
+    defer conn.Close()
+    enc = json.NewEncoder(conn)
+    dec = json.NewDecoder(conn)
+
+    // Request updates from (local clock + 1)
     syncReq := PeerMessage{
         Type: GetUpdatesSince,
         Metadata: InternalData{
             Sender:    ps.PeerAddr,
-            StartTime: ps.LamportClock + 1, // Don't re-send what we already have
+            StartTime: ps.LamportClock + 1,
         },
     }
-
     if err := enc.Encode(syncReq); err != nil {
         return fmt.Errorf("failed to send sync request: %v", err)
     }
@@ -945,8 +960,8 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
     for {
         var update PeerMessage
         if err := dec.Decode(&update); err != nil {
-            if err == io.EOF {
-                break // Normal termination
+            if err == io.EOF || strings.Contains(err.Error(), "wsarecv: An established connection was aborted")  {
+                break // treat as end-of-stream
             }
             return fmt.Errorf("failed to decode update: %v", err)
         }
@@ -1006,6 +1021,23 @@ func (ps *PeerServer) appendToUpdateLog(pm PeerMessage) {
     }
 }
 
+func (ps *PeerServer) flushQueue() {
+    ps.queueLock.Lock()
+    defer ps.queueLock.Unlock()
+    var maxTs int64 = ps.LamportClock
+    // Process all pending messages in the queue.
+    for ps.msgQueue.Len() > 0 {
+        item := heap.Pop(&ps.msgQueue).(*MessageItem)
+        ps.applyMessage(item.message)
+        ps.appendToUpdateLog(item.message)
+        if item.message.Timestamp > maxTs {
+            maxTs = item.message.Timestamp
+        }
+    }
+    ps.LamportClock = maxTs
+}
+
+
 // getUpdatesSince returns all updates in the local log with timestamps greater than the given value
 func (ps *PeerServer) getUpdatesSince(since int64) ([]PeerMessage, error) {
     ps.updateLogMutex.Lock()
@@ -1020,7 +1052,7 @@ func (ps *PeerServer) getUpdatesSince(since int64) ([]PeerMessage, error) {
     
     for left <= right {
         mid := left + (right-left)/2
-        if ps.updateLog[mid].Timestamp > since {
+        if ps.updateLog[mid].Timestamp >= since {
             startIdx = mid
             right = mid - 1
         } else {
