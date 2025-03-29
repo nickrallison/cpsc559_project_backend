@@ -1,98 +1,111 @@
-import React, {useState} from 'react';
+// Home.js
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import '../App.css';
 
-const HTTPPORT = process.env.REACT_APP_HTTPPORT; 
+const HTTPPORT = process.env.REACT_APP_HTTPPORT;
 
 const Home = () => {
-  // State to hold form data
-  const [userId, setUserId] = useState('');
-  const [userMessageId, setUserMessageId] = useState('');
-  const [data, setData] = useState('');
-  const [responseMessage, setResponseMessage] = useState('');
-  const [fetchedObjects, setFetchedObjects] = useState([]);
+  const [newTask, setNewTask] = useState('');
+  const [tasks, setTasks] = useState([]);
+  const [statusMsg, setStatusMsg] = useState('');
 
-  // Handle form submission
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    // Create the object to send
-    const object = {
-      user_id: parseInt(userId),
-      user_message_id: parseInt(userMessageId),
-      data: data,
-    };
-
-    console.log(`http://localhost:${HTTPPORT}/objects`)
-    // POST request to push data to the server
-    axios
-      .post(`http://localhost:${HTTPPORT}/objects`, [object]) // Send data as an array
-      .then((response) => {
-        setResponseMessage('Data submitted successfully!');
-        console.log(response.data);
-      })
-      .catch((error) => {
-        setResponseMessage('Error submitting data');
-        console.error('Error:', error);
-      });
-  };
-
-  // Handle fetching objects by User ID
-  const handleGetObjects = () => {
-    console.log(`http://localhost:${HTTPPORT}/objects?userId=1`)
+  // Fetch tasks for user 1
+  const fetchTasks = () => {
     axios
       .get(`http://localhost:${HTTPPORT}/objects?userId=1`)
       .then((response) => {
-        setFetchedObjects(response.data);
-        setResponseMessage('');
+        setTasks(response.data);
+        setStatusMsg('');
       })
       .catch((error) => {
-        setResponseMessage('Error fetching data');
+        setStatusMsg('Error fetching tasks');
+        console.error('Fetch error:', error);
+      });
+  };
+
+  // Add a new task
+  const addTask = (e) => {
+    e.preventDefault();
+    if (!newTask.trim()) return;
+    const taskObject = {
+      user_id: 1,
+      user_message_id: Date.now(), // using timestamp as a unique id
+      data: newTask,
+    };
+    axios
+      .post(`http://localhost:${HTTPPORT}/objects`, [taskObject])
+      .then((response) => {
+        setStatusMsg('Task added successfully!');
+        setNewTask('');
+        fetchTasks();
+      })
+      .catch((error) => {
+        setStatusMsg('Error adding task');
         console.error('Error:', error);
       });
   };
 
+  // Edit a task by sending a PUT request
+  const editTask = (task) => {
+    const updatedData = prompt('Edit task:', task.data);
+    if (updatedData === null || updatedData.trim() === '') return;
+    const updatedTask = { ...task, data: updatedData };
+    axios
+      .put(`http://localhost:${HTTPPORT}/objects`, updatedTask)
+      .then((response) => {
+        setStatusMsg('Task updated successfully!');
+        fetchTasks();
+      })
+      .catch((error) => {
+        setStatusMsg('Error updating task');
+        console.error('Update error:', error);
+      });
+  };
+
+  // Delete a task by sending a DELETE request
+  const deleteTask = (task) => {
+    axios
+      .delete(`http://localhost:${HTTPPORT}/objects?userId=${task.user_id}&userMessageId=${task.user_message_id}`)
+      .then(() => {
+        setStatusMsg('Task deleted successfully!');
+        fetchTasks();
+      })
+      .catch((error) => {
+        setStatusMsg('Error deleting task');
+        console.error('Delete error:', error);
+      });
+  };
+
+  // Fetch tasks on mount
+  useEffect(() => {
+    fetchTasks();
+  }, []);
+
   return (
-    <div>
-      <h1>Connected to Port {HTTPPORT}</h1>
-      <h1>Submit Object</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label>User ID:</label>
-          <input
-            type="number"
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label>User Message ID:</label>
-          <input
-            type="number"
-            value={userMessageId}
-            onChange={(e) => setUserMessageId(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label>Data:</label>
-          <input
-            type="text"
-            value={data}
-            onChange={(e) => setData(e.target.value)}
-            required
-          />
-        </div>
-        <button type="submit">Submit</button>
+    <div className="container">
+      <h1>Shared To‑Do List</h1>
+      <form className="task-form" onSubmit={addTask}>
+        <input
+          type="text"
+          placeholder="Enter new task..."
+          value={newTask}
+          onChange={(e) => setNewTask(e.target.value)}
+          required
+        />
+        <button type="submit">Add Task</button>
       </form>
-      {responseMessage && <p>{responseMessage}</p>}
-      <h1>Get Where User id is 1</h1>
-      <button onClick={handleGetObjects} style={{ marginTop: "10px", backgroundColor: "#4C7355", color: "white", padding: "10px", border: "none", cursor: "pointer", borderRadius: "5px" }}>
-        Get Items
-      </button>
-      <ul>
-        {fetchedObjects.map((obj, index) => (
-          <li key={index}>{JSON.stringify(obj)}</li>
+      {statusMsg && <p className="status-msg">{statusMsg}</p>}
+      <h2>Tasks</h2>
+      <ul className="task-list">
+        {tasks.map((task, index) => (
+          <li key={index}>
+            <span>{task.data}</span>
+            <div className="actions">
+              <button onClick={() => editTask(task)}>Edit</button>
+              <button onClick={() => deleteTask(task)}>Delete</button>
+            </div>
+          </li>
         ))}
       </ul>
     </div>
