@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
-import { FaEdit, FaTrash } from 'react-icons/fa';
 import axios from 'axios';
+import { FaEdit, FaTrash } from 'react-icons/fa';
 import '../App.css';
 
 const HTTPPORT = process.env.REACT_APP_HTTPPORT;
@@ -10,6 +9,8 @@ const Home = () => {
   const [newTask, setNewTask] = useState('');
   const [tasks, setTasks] = useState([]);
   const [statusMsg, setStatusMsg] = useState('');
+  const [editingTask, setEditingTask] = useState(null);
+  const [editedText, setEditedText] = useState('');
 
   // Fetch tasks for user 1
   const fetchTasks = () => {
@@ -35,8 +36,8 @@ const Home = () => {
       data: newTask,
     };
     axios
-      .post(`http://localhost:${HTTPPORT}/objects`, [taskObject])
-      .then((response) => {
+      .post(`http://${window.location.hostname}:${HTTPPORT}/objects`, [taskObject])
+      .then(() => {
         setStatusMsg('Task added successfully!');
         setNewTask('');
         fetchTasks();
@@ -47,16 +48,28 @@ const Home = () => {
       });
   };
 
-  // Edit a task by sending a PUT request
-  const editTask = (task) => {
-    const updatedData = prompt('Edit task:', task.data);
-    if (updatedData === null || updatedData.trim() === '') return;
-    const updatedTask = { ...task, data: updatedData };
+  // Open the edit popup
+  const openEditPopup = (task) => {
+    setEditingTask(task);
+    setEditedText(task.data);
+  };
+
+  // Close the edit popup
+  const closeEditPopup = () => {
+    setEditingTask(null);
+    setEditedText('');
+  };
+
+  // Submit the edited task
+  const submitEdit = () => {
+    if (editedText.trim() === '') return;
+    const updatedTask = { ...editingTask, data: editedText };
     axios
-      .put(`http://localhost:${HTTPPORT}/objects`, updatedTask)
-      .then((response) => {
+      .put(`http://${window.location.hostname}:${HTTPPORT}/objects`, updatedTask)
+      .then(() => {
         setStatusMsg('Task updated successfully!');
         fetchTasks();
+        closeEditPopup();
       })
       .catch((error) => {
         setStatusMsg('Error updating task');
@@ -64,10 +77,10 @@ const Home = () => {
       });
   };
 
-  // Delete a task by sending a DELETE request
+  // Delete a task
   const deleteTask = (task) => {
     axios
-      .delete(`http://localhost:${HTTPPORT}/objects?userId=${task.user_id}&userMessageId=${task.user_message_id}`)
+      .delete(`http://${window.location.hostname}:${HTTPPORT}/objects?userId=${task.user_id}&userMessageId=${task.user_message_id}`)
       .then(() => {
         setStatusMsg('Task deleted successfully!');
         fetchTasks();
@@ -78,13 +91,13 @@ const Home = () => {
       });
   };
 
+  // Polling to fetch tasks periodically (every 1 second)
   useEffect(() => {
     const pollingInterval = setInterval(() => {
       fetchTasks();
-    }, 1000); // 1 second interval
+    }, 1000);
     return () => clearInterval(pollingInterval);
   }, []);
-  
 
   return (
     <div className="container">
@@ -106,16 +119,34 @@ const Home = () => {
           <li key={index}>
             <span>{task.data}</span>
             <div className="actions">
-            <button onClick={() => editTask(task)} className="icon-button edit-icon">
-              <FaEdit />
-            </button>
-            <button onClick={() => deleteTask(task)} className="icon-button delete-icon">
-              <FaTrash />
-            </button>
+              <button onClick={() => openEditPopup(task)} className="icon-button edit-icon">
+                <FaEdit />
+              </button>
+              <button onClick={() => deleteTask(task)} className="icon-button delete-icon">
+                <FaTrash />
+              </button>
             </div>
           </li>
         ))}
       </ul>
+
+      {/* Modal Popup for Editing Task */}
+      {editingTask && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Edit Task</h3>
+            <input
+              type="text"
+              value={editedText}
+              onChange={(e) => setEditedText(e.target.value)}
+            />
+            <div className="modal-actions">
+              <button onClick={submitEdit}>Save</button>
+              <button onClick={closeEditPopup}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
