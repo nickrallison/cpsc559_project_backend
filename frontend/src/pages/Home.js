@@ -13,7 +13,7 @@ const Home = () => {
   // Fetch tasks for user 1
   const fetchTasks = () => {
     axios
-      .get(`http://localhost:${HTTPPORT}/objects?userId=1`)
+      .get(`http://${window.location.hostname}:${HTTPPORT}/objects?userId=1`)
       .then((response) => {
         setTasks(response.data);
         setStatusMsg('');
@@ -77,10 +77,13 @@ const Home = () => {
       });
   };
 
-  // Fetch tasks on mount
   useEffect(() => {
-    fetchTasks();
+    const pollingInterval = setInterval(() => {
+      fetchTasks();
+    }, 1000); // 1 second interval
+    return () => clearInterval(pollingInterval);
   }, []);
+  
 
   return (
     <div className="container">
