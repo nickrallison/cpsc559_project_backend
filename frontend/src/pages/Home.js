@@ -11,6 +11,7 @@ const Home = () => {
   const [statusMsg, setStatusMsg] = useState('');
   const [editingTask, setEditingTask] = useState(null);
   const [editedText, setEditedText] = useState('');
+  const [deletingTask, setDeletingTask] = useState(null);
 
   // Fetch tasks for user 1
   const fetchTasks = () => {
@@ -77,13 +78,24 @@ const Home = () => {
       });
   };
 
-  // Delete a task
-  const deleteTask = (task) => {
+   // Open delete confirmation popup
+  const openDeletePopup = (task) => {
+    setDeletingTask(task);
+  };
+
+  // Close delete confirmation popup
+  const closeDeletePopup = () => {
+    setDeletingTask(null);
+  };
+
+  // Confirm delete action
+  const confirmDelete = () => {
     axios
-      .delete(`http://${window.location.hostname}:${HTTPPORT}/objects?userId=${task.user_id}&userMessageId=${task.user_message_id}`)
+      .delete(`http://${window.location.hostname}:${HTTPPORT}/objects?userId=${deletingTask.user_id}&userMessageId=${deletingTask.user_message_id}`)
       .then(() => {
         setStatusMsg('Task deleted successfully!');
         fetchTasks();
+        closeDeletePopup();
       })
       .catch((error) => {
         setStatusMsg('Error deleting task');
@@ -122,7 +134,7 @@ const Home = () => {
               <button onClick={() => openEditPopup(task)} className="icon-button edit-icon">
                 <FaEdit />
               </button>
-              <button onClick={() => deleteTask(task)} className="icon-button delete-icon">
+              <button onClick={() => openDeletePopup(task)} className="icon-button delete-icon">
                 <FaTrash />
               </button>
             </div>
@@ -143,6 +155,20 @@ const Home = () => {
             <div className="modal-actions">
               <button onClick={submitEdit}>Save</button>
               <button onClick={closeEditPopup}>Cancel</button>
+            </div>
+          </div>
+        </div>
+        
+      )}
+     {/* Modal Popup for Delete Confirmation */}
+      {deletingTask && (
+        <div className="modal-overlay">
+          <div className="modal delete-modal">
+            <h3>Confirm Delete</h3>
+            <p>Are you sure you want to delete this task?</p>
+            <div className="modal-actions">
+              <button onClick={confirmDelete}>Delete</button>
+              <button onClick={closeDeletePopup}>Cancel</button>
             </div>
           </div>
         </div>

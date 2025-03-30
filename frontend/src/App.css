@@ -144,3 +144,15 @@
     background-color: #8B0000;
     color: white;
   }
+
+
+.delete-modal .modal-actions button:first-child {
+    background-color: #8B0000;
+    color: white;
+  }
+  
+  .delete-modal .modal-actions button:last-child {
+    background-color: #4C7355;
+    color: white;
+  }
+  
