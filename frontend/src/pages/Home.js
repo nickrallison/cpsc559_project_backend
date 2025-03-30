@@ -61,8 +61,8 @@ const Home = () => {
     const marker = " [Done]";
     let updatedData;
     if (task.data.includes(marker)) {
-      // Remove the first occurrence of the marker.
-      // Using Replace with count 1 ensures that only the first instance is removed.
+      // Remove the first occurrence of the marker
+     
       updatedData = task.data.replace(marker, "").trim();
     } else {
       updatedData = task.data + marker;
@@ -149,7 +149,7 @@ const Home = () => {
     return () => clearInterval(pollingInterval);
   }, []);
 
-  // Separate tasks into planned vs. completed
+  // Separate tasks into planned and completed
   const plannedTasks = tasks.filter((task) => !task.data.includes("[Done]"));
   const completedTasks = tasks.filter((task) => task.data.includes("[Done]"));
 
@@ -176,12 +176,17 @@ const Home = () => {
             key={task.user_message_id}
             className={task.data.includes("[Done]") ? "completed-task" : ""}
           >
-            <input
-              type="checkbox"
-              checked={task.data.includes("[Done]")}
-              onChange={() => toggleTaskCompletion(task)}
-            />
-            <span className="task-text">{task.data}</span>
+            {/* Left side: checkbox + text */}
+            <div className="task-left">
+              <input
+                type="checkbox"
+                checked={task.data.includes("[Done]")}
+                onChange={() => toggleTaskCompletion(task)}
+              />
+              <span className="task-text">{task.data}</span>
+            </div>
+
+            {/* Right side: edit/delete icons */}
             <div className="actions">
               <button
                 onClick={() => openEditPopup(task)}
@@ -208,12 +213,15 @@ const Home = () => {
             key={task.user_message_id}
             className={task.data.includes("[Done]") ? "completed-task" : ""}
           >
-            <input
-              type="checkbox"
-              checked={task.data.includes("[Done]")}
-              onChange={() => toggleTaskCompletion(task)}
-            />
-            <span className="task-text">{task.data}</span>
+            <div className="task-left">
+              <input
+                type="checkbox"
+                checked={task.data.includes("[Done]")}
+                onChange={() => toggleTaskCompletion(task)}
+              />
+              <span className="task-text">{task.data}</span>
+            </div>
+
             <div className="actions">
               <button
                 onClick={() => openEditPopup(task)}

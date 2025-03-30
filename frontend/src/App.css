@@ -33,20 +33,43 @@ h1 {
   margin-left: 10px;
 }
 
+.task-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #f2f2f2;
+    margin-bottom: 10px;
+    padding: 10px;
+    border-radius: 5px;
+}
+  
+  
+.task-left {
+    display: flex;          
+    align-items: center;    
+    justify-content: flex-start; 
+}
+
+
+.task-left input[type="checkbox"] {
+    margin-right: 8px;
+}
+  
+.task-text {
+    text-align: left;
+    margin-left: 10px;
+    flex: 1;
+    white-space: pre-wrap;      
+    word-wrap: break-word;      
+    overflow-wrap: break-word; 
+    max-width: 100%;
+}
+
 .task-list {
   list-style: none;
   padding: 0;
 }
 
-.task-list li {
-  background-color: #f2f2f2;
-  margin-bottom: 10px;
-  padding: 10px;
-  border-radius: 5px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
 
 .status-msg {
   text-align: center;
@@ -158,3 +181,34 @@ h1 {
   margin-right: 10px;
   transform: scale(1.2);
 }
+
+.task-left input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    -webkit-appearance: none;
+    appearance: none;
+    border: 2px solid #4c7355;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+    margin-right: 16px;
+    position: relative;
+}
+  
+  
+.task-left input[type="checkbox"]:checked {
+    background-color: #4c7355;
+}
+  
+.task-left input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 2px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+  
