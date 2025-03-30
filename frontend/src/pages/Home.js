@@ -1,5 +1,6 @@
-// Home.js
+
 import React, { useState, useEffect } from 'react';
+import { FaEdit, FaTrash } from 'react-icons/fa';
 import axios from 'axios';
 import '../App.css';
 
@@ -105,8 +106,12 @@ const Home = () => {
           <li key={index}>
             <span>{task.data}</span>
             <div className="actions">
-              <button onClick={() => editTask(task)}>Edit</button>
-              <button onClick={() => deleteTask(task)}>Delete</button>
+            <button onClick={() => editTask(task)} className="icon-button edit-icon">
+              <FaEdit />
+            </button>
+            <button onClick={() => deleteTask(task)} className="icon-button delete-icon">
+              <FaTrash />
+            </button>
             </div>
           </li>
         ))}
