@@ -96,15 +96,15 @@ def main():
     # Stop tcpdump and capture its output.
     print("[Crash Test] Terminating tcpdump and collecting captured messages...")
     tcpdump_proc.terminate()
-    try:
-        stdout, stderr = tcpdump_proc.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        tcpdump_proc.kill()
-        stdout, stderr = tcpdump_proc.communicate()
+    # try:
+    #     stdout, stderr = tcpdump_proc.communicate(timeout=5)
+    # except subprocess.TimeoutExpired:
+    #     tcpdump_proc.kill()
+    #     stdout, stderr = tcpdump_proc.communicate()
 
-    print("\n=== Captured Follower Messages ===\n")
-    print(stdout)
-    print("\n=== End of Captured Messages ===\n")
+    # print("\n=== Captured Follower Messages ===\n")
+    # print(stdout)
+    # print("\n=== End of Captured Messages ===\n")
     print("[Crash Test] Crash test complete.")
 
 if __name__ == "__main__":
