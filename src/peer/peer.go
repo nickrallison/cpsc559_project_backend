@@ -1172,7 +1172,9 @@ func (ps *PeerServer) StartElection() {
     log.Printf("[%s] Found %d reachable higher priority peer(s): %v", ps.PeerAddr, len(liveHigherPeers), liveHigherPeers)
     
     if len(liveHigherPeers) == 0 {
-        ps.becomeLeader()
+        if err := ps.becomeLeader(); err != nil {
+			log.Printf("[%s] Failed to become leader: %v", ps.PeerAddr, err)
+		}
         return
     }
     
@@ -1238,7 +1240,9 @@ func (ps *PeerServer) StartElection() {
             ps.StartElection()
         }
     } else {
-        ps.becomeLeader()
+        if err := ps.becomeLeader(); err != nil {
+			log.Printf("[%s] Failed to become leader: %v", ps.PeerAddr, err)
+		}
     }
 }
 
@@ -1265,6 +1269,9 @@ func (ps *PeerServer) becomeLeader() error {
 
     // Check with all known peers to find the most up-to-date state
     for _, addr := range ps.knownPeers {
+		if addr == ps.PeerAddr {
+			continue // don't connect to yourself
+		}
         ts, err := ps.getPeerTimestamp(addr)
         if err != nil {
             log.Printf("Failed to get timestamp from %s: %v", addr, err)
