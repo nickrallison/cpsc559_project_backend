@@ -280,6 +280,9 @@ func (ps *PeerServer) handleStoreObject(conn net.Conn, pm PeerMessage) {
 		ps.EnqueueMessage(pm) // Enqueue update for ordered processing
 		// Replicate the update to all known followers concurrently
 		for _, addr := range ps.knownPeers {
+            if addr == ps.PeerAddr {
+                continue
+            }
 			go func(peerAddr string) {
 				if err := ps.pushUpdateToPeer(peerAddr, pm); err != nil {
 					log.Printf("Leader failed to push update to follower %s: %v", peerAddr, err)
@@ -555,6 +558,9 @@ func (ps *PeerServer) handleDeleteObject(conn net.Conn, pm PeerMessage) {
 // pushUpdateToPeer is used by the leader to replicate a write update to a follower
 // It sends the update and waits for an ACK that confirms the follower applied the update
 func (ps *PeerServer) pushUpdateToPeer(addr string, pm PeerMessage) error {
+    if addr == ps.PeerAddr {
+       return nil
+    }
 	pm.Metadata.Sender = ps.PeerAddr
 	log.Printf("DEBUG: Pushing update to %s: type %d, timestamp %d", addr, pm.Type, pm.Timestamp)
 	conn, err := net.Dial("tcp", addr)
@@ -1296,7 +1302,7 @@ func (ps *PeerServer) becomeLeader() error {
 
     // Phase 4: Formalize leadership
     ps.Role = Leader
-    ps.LeaderAddr = ps.PeerAddr
+    ps.LeaderAddr = ""
 
     // Phase 5: Announce leadership with our state
     var wg sync.WaitGroup
