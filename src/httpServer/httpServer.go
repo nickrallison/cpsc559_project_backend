@@ -56,6 +56,11 @@ func NewHTTPHandler(ps *peer.PeerServer) http.Handler {
 		})
 	})).ServeHTTP)
 
+	mux.HandleFunc("/alive", corsHandler.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("alive"))
+	})).ServeHTTP)
+
 	return mux
 }
 

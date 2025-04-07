@@ -3,8 +3,6 @@ import axios from "axios";
 import { FaEdit, FaTrash } from "react-icons/fa";
 import "../App.css";
 
-const HTTPPORT = process.env.REACT_APP_HTTPPORT;
-
 const Home = () => {
   const [newTask, setNewTask] = useState("");
   const [tasks, setTasks] = useState([]);
@@ -17,10 +15,21 @@ const Home = () => {
   // For delete confirmation
   const [deletingTask, setDeletingTask] = useState(null);
 
+  // Current active backend port (using the HTTP port as the default)
+  const [backendPort, setBackendPort] = useState(process.env.REACT_APP_HTTPPORT);
+
+  // setHTTP updates the active backend port
+  const setHTTP = (port) => {
+    setBackendPort(port);
+  };
+
+  // Construct the base URL for API calls using the active backend port
+  const baseURL = `http://${window.location.hostname}:${backendPort}`;
+
   // Fetch tasks (assuming userId=1)
   const fetchTasks = () => {
     axios
-      .get(`http://${window.location.hostname}:${HTTPPORT}/objects?userId=1`)
+      .get(`${baseURL}/objects?userId=1`)
       .then((response) => {
         setTasks(response.data);
         setStatusMsg("");
@@ -28,6 +37,7 @@ const Home = () => {
       .catch((error) => {
         setStatusMsg("Error fetching tasks");
         console.error("Fetch error:", error);
+        handleBackendError();
       });
   };
 
@@ -42,9 +52,7 @@ const Home = () => {
       completed: false, // new tasks default to false
     };
     axios
-      .post(`http://${window.location.hostname}:${HTTPPORT}/objects`, [
-        taskObject,
-      ])
+      .post(`${baseURL}/objects`, [taskObject])
       .then(() => {
         setStatusMsg("Task added successfully!");
         setNewTask("");
@@ -69,16 +77,14 @@ const Home = () => {
     }
     const updatedTask = { ...task, data: updatedData };
     axios
-      .put(
-        `http://${window.location.hostname}:${HTTPPORT}/objects`,
-        updatedTask
-      )
+      .put(`${baseURL}/objects`, updatedTask)
       .then(() => {
         fetchTasks();
       })
       .catch((error) => {
         setStatusMsg("Error updating task");
         console.error("Update error:", error);
+        handleBackendError();
       });
   };
 
@@ -99,10 +105,7 @@ const Home = () => {
     if (editedText.trim() === "") return;
     const updatedTask = { ...editingTask, data: editedText };
     axios
-      .put(
-        `http://${window.location.hostname}:${HTTPPORT}/objects`,
-        updatedTask
-      )
+      .put(`${baseURL}/objects`, updatedTask)
       .then(() => {
         setStatusMsg("Task updated successfully!");
         fetchTasks();
@@ -111,6 +114,7 @@ const Home = () => {
       .catch((error) => {
         setStatusMsg("Error updating task");
         console.error("Update error:", error);
+        handleBackendError();
       });
   };
 
@@ -127,9 +131,7 @@ const Home = () => {
   // Confirm delete action
   const confirmDelete = () => {
     axios
-      .delete(
-        `http://${window.location.hostname}:${HTTPPORT}/objects?userId=${deletingTask.user_id}&userMessageId=${deletingTask.user_message_id}`
-      )
+      .delete(`${baseURL}/objects?userId=${deletingTask.user_id}&userMessageId=${deletingTask.user_message_id}`)
       .then(() => {
         setStatusMsg("Task deleted successfully!");
         fetchTasks();
@@ -138,7 +140,26 @@ const Home = () => {
       .catch((error) => {
         setStatusMsg("Error deleting task");
         console.error("Delete error:", error);
+        handleBackendError();
       });
+  };
+
+  // Check for an available backend port from the list passed as ports in REACT_APP_BACKEND_URLS.
+  // For example, REACT_APP_BACKEND_URLS might be "8080,8081,8082".
+  const handleBackendError = async () => {
+    const ports = process.env.REACT_APP_BACKEND_URLS.split(",");
+    for (let port of ports) {
+      try {
+        const response = await axios.get(`http://${window.location.hostname}:${port}/alive`);
+        if (response.data === "alive") {
+          setHTTP(port);
+          console.log(`Switched backend to port: ${port}`);
+          break;
+        }
+      } catch (err) {
+        console.error(`Backend port ${port} not responding.`);
+      }
+    }
   };
 
   // Poll tasks periodically
@@ -147,7 +168,7 @@ const Home = () => {
       fetchTasks();
     }, 1000);
     return () => clearInterval(pollingInterval);
-  }, []);
+  }, [backendPort]); // Refetch tasks when backendPort changes
 
   // Separate tasks into planned and completed
   const plannedTasks = tasks.filter((task) => !task.data.includes("[Done]"));
