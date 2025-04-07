@@ -3,6 +3,8 @@ import axios from "axios";
 import { FaEdit, FaTrash } from "react-icons/fa";
 import "../App.css";
 
+// We'll assume REACT_APP_HTTPPORT is now something like "100.81.146.3:8080"
+// and REACT_APP_BACKEND_URLS might be "100.81.146.3:8080,100.81.146.3:8081,100.81.146.3:8082"
 const Home = () => {
   const [newTask, setNewTask] = useState("");
   const [tasks, setTasks] = useState([]);
@@ -15,16 +17,18 @@ const Home = () => {
   // For delete confirmation
   const [deletingTask, setDeletingTask] = useState(null);
 
-  // Current active backend port (using the HTTP port as the default)
-  const [backendPort, setBackendPort] = useState(process.env.REACT_APP_HTTPPORT);
+  // Current active backend address (tailscaleIP:port)
+  const [backendAddress, setBackendAddress] = useState(
+    process.env.REACT_APP_HTTPPORT
+  );
 
-  // setHTTP updates the active backend port
-  const setHTTP = (port) => {
-    setBackendPort(port);
+  // Update the active backend address
+  const setHTTP = (address) => {
+    setBackendAddress(address);
   };
 
-  // Construct the base URL for API calls using the active backend port
-  const baseURL = `http://${window.location.hostname}:${backendPort}`;
+  // Construct the base URL using the active backend address
+  const baseURL = `http://${backendAddress}`;
 
   // Fetch tasks (assuming userId=1)
   const fetchTasks = () => {
@@ -61,6 +65,7 @@ const Home = () => {
       .catch((error) => {
         setStatusMsg("Error adding task");
         console.error("Error:", error);
+        handleBackendError();
       });
   };
 
@@ -131,7 +136,9 @@ const Home = () => {
   // Confirm delete action
   const confirmDelete = () => {
     axios
-      .delete(`${baseURL}/objects?userId=${deletingTask.user_id}&userMessageId=${deletingTask.user_message_id}`)
+      .delete(
+        `${baseURL}/objects?userId=${deletingTask.user_id}&userMessageId=${deletingTask.user_message_id}`
+      )
       .then(() => {
         setStatusMsg("Task deleted successfully!");
         fetchTasks();
@@ -144,20 +151,21 @@ const Home = () => {
       });
   };
 
-  // Check for an available backend port from the list passed as ports in REACT_APP_BACKEND_URLS.
-  // For example, REACT_APP_BACKEND_URLS might be "8080,8081,8082".
+  // Check for an available backend from the list in REACT_APP_BACKEND_URLS (each is tailscaleIP:port).
   const handleBackendError = async () => {
-    const ports = process.env.REACT_APP_BACKEND_URLS.split(",");
-    for (let port of ports) {
+    const addresses = (process.env.REACT_APP_BACKEND_URLS || "").split(",");
+    for (let addr of addresses) {
+      const trimmedAddr = addr.trim();
+      if (!trimmedAddr) continue;
       try {
-        const response = await axios.get(`http://${window.location.hostname}:${port}/alive`);
+        const response = await axios.get(`http://${trimmedAddr}/alive`);
         if (response.data === "alive") {
-          setHTTP(port);
-          console.log(`Switched backend to port: ${port}`);
+          setHTTP(trimmedAddr);
+          console.log(`Switched backend to: ${trimmedAddr}`);
           break;
         }
       } catch (err) {
-        console.error(`Backend port ${port} not responding.`);
+        console.error(`Backend address ${trimmedAddr} not responding.`);
       }
     }
   };
@@ -168,7 +176,7 @@ const Home = () => {
       fetchTasks();
     }, 1000);
     return () => clearInterval(pollingInterval);
-  }, [backendPort]); // Refetch tasks when backendPort changes
+  }, [backendAddress]); // Refetch tasks when backendAddress changes
 
   // Separate tasks into planned and completed
   const plannedTasks = tasks.filter((task) => !task.data.includes("[Done]"));

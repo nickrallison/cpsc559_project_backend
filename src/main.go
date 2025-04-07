@@ -32,7 +32,7 @@ func main() {
 	leaderAddr := flag.String("leaderAddr", os.Getenv("LEADERADDR"), "Leader address for follower mode (e.g. 'localhost:9000')")
 	// For leader mode: comma‑separated list of peer addresses.
 	peersStr := flag.String("peers", os.Getenv("PEERS"), "Comma-separated list of follower peer addresses (for leader)")
-	httpHost := flag.String("httpHost", "localhost", "HTTP server host")
+	httpHost := flag.String("httpHost", os.Getenv("MYOWN"), "HTTP server host")
 	httpPort := flag.String("httpPort", os.Getenv("HTTPPORT"), "HTTP server port")
 
 	// If localAddr ends in ":", strip it.
