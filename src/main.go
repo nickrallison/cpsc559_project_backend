@@ -16,13 +16,13 @@ func main() {
 
 	if err := godotenv.Load(os.Getenv("ENV_FILE")); err != nil {
 		log.Printf("Cannot load .env file: %v", err)
-		log.Printf("Loading default .env file: \".env.leader\"")
-		godotenv.Load(".env.leader")
+		//log.Printf("Loading default .env file: \".env.leader\"")
+		//godotenv.Load(".env.leader")
 	}
 
 	// Parse command-line flags.
 	dbPath := flag.String("db", os.Getenv("DATABASE"), "libsql database file path")
-	ip := flag.String("ip", "", "IP addresses of other instances")
+	//ip := flag.String("ip", "", "IP addresses of other instances")
 	role := peer.RoleFromString(flag.String("role", os.Getenv("ROLE"), "Role: leader or follower"))
 
 	// peerPort for peer-to-peer messaging.
@@ -43,7 +43,7 @@ func main() {
 	flag.Parse()
 
 	println("dbPath:", *dbPath)
-	println("ip:", *ip)
+	//println("ip:", *ip)
 	println("role:", role)
 	println("peerPort:", *peerPort)
 	println("leaderAddr:", *leaderAddr)
