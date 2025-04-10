@@ -16,9 +16,9 @@ type StoredObject struct {
 }
 
 func InitDB(dbPath string) (error, *sql.DB) {
-	path_query := dbPath + "?_busy_timeout=5000"
-	println("dbPath:", path_query)
-	DB, err := sql.Open("libsql", path_query)
+	//dbPath = dbPath + "?_busy_timeout=5000"
+	println("dbPath:", dbPath)
+	DB, err := sql.Open("libsql", dbPath)
 	DB.SetMaxOpenConns(1)
 	if err != nil {
 		return fmt.Errorf("failed to open db %s: %v", dbPath, err), nil
