@@ -7,56 +7,17 @@ import sys
 import time
 
 
-def load_config(config_file="machines.json"):
+def load_config(config_file="machines.json") -> dict:
     with open(config_file, "r") as f:
         config = json.load(f)
     return config
 
-def setup_remote_command(machine_config, repo_url):
+def setup_command(machine_config, repo_url) -> str:
     repo_path = machine_config.get("repo_path", "~/.config/cpsc559")
-    cmd: str = f"mkdir -p {repo_path}; cd {repo_path} && rm -f *.db; cd {repo_path} && if [ ! -d .git ]; then git clone {repo_url} .; fi"
+    cmd: str = f"mkdir -p {repo_path} && cd {repo_path} && rm -f *.db; cd {repo_path} && if [ ! -d .git ]; then git clone {repo_url} .; fi && git pull"
     return cmd
 
-threads = []
-
-def run_remote_command(machine_config, remote_command):
-    username = machine_config["username"]
-    ip = machine_config["ip"]
-    ssh_target = f"{username}@{ip}"
-
-    cmd = [
-        "tailscale", "ssh",
-        ssh_target,
-        remote_command
-    ]
-    # For debugging you may uncomment the next line.
-    print("Running command:\n", " ".join(cmd))
-
-    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-def run_remote_command_blocking(machine_config, remote_command):
-    username = machine_config["username"]
-    ip = machine_config["ip"]
-    ssh_target = f"{username}@{ip}"
-
-    cmd = [
-        "tailscale", "ssh",
-        ssh_target,
-        remote_command
-    ]
-    # For debugging you may uncomment the next line.
-    print("Running command:\n", " ".join(cmd))
-    popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    # Wait for the command to complete and capture the output.
-    stdout, stderr = popen.communicate()
-    if popen.returncode != 0:
-        print(f"Error running command on {ssh_target}: {stderr.decode()}")
-        return None
-    return stdout.decode()
-
-
-def get_machine_run_cmd(machines: list[dict], id: int):
+def backend_command(machines: list[dict], id: int) -> str:
     num_machines = len(machines)
     assert 0 <= id < num_machines, f"Invalid machine ID: {id}. Must be between 0 and {num_machines - 1}."
 
@@ -74,22 +35,38 @@ def get_machine_run_cmd(machines: list[dict], id: int):
     role = machine["role"]
     leader_addr = f"{leader[0]['ip']}:{leader[0]['backend_port']}"
 
+    repo_path = machine.get("repo_path", "~/.config/cpsc559")
+    go_path = machine.get("go_path", "go")
     run_command = (
-        f"go run ./src/main.go "
+        f"cd {repo_path} && {go_path} run {repo_path}/src/main.go "
         f"--db {db} --role {role} --localAddr {machine['ip']} "
         f"--peerPort {machine['backend_port']} --leaderAddr {leader_addr} "
         f"--peers {peers_list} --httpHost {machine['ip']} --httpPort {machine['http_port']}"
     )
     return run_command
 
-def get_frontend_command(machine_config: dict):
+def frontend_command(machine_config: dict) -> str:
     repo_path = machine_config.get("repo_path", "~/.config/cpsc559")
     full_cmd = (
         f"cd {repo_path}/frontend && export REACT_APP_HTTPPORT={machine_config['ip']}:{machine_config['http_port']} && "
-        f"yarn start"
+        f"npm start"
     )
     return full_cmd
 
+def run_remote_command(machine_config, remote_command) -> subprocess.Popen:
+    username = machine_config["username"]
+    ip = machine_config["ip"]
+    ssh_target = f"{username}@{ip}"
+
+    cmd = [
+        "tailscale", "ssh",
+        ssh_target,
+        remote_command
+    ]
+    cmd_str = f"tailscale ssh {ssh_target} \"{remote_command}\""
+    print(f"Running command:\n{cmd_str}")
+
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 def main():
     # Load configuration from the JSON file.
@@ -108,18 +85,18 @@ def main():
     repo_url = config["repo_url"]
 
     for machine_id, machine in enumerate(machines):
-        setup_cmd = setup_remote_command(machine, repo_url)
+        setup_cmd = setup_command(machine, repo_url)
         print(f"Setting up machine {machine_id} with command: {setup_cmd}")
-        run_remote_command_blocking(machine, setup_cmd)
+        run_remote_command(machine, setup_cmd).communicate()
 
 
     # get run commands
-    leader_run_cmd = get_machine_run_cmd(machines, leader_id)
+    leader_run_cmd = backend_command(machines, leader_id)
     follower_run_cmds = [
-        (follower_id, get_machine_run_cmd(machines, follower_id)) for follower_id in follower_ids
+        (follower_id, backend_command(machines, follower_id)) for follower_id in follower_ids
     ]
 
-    procs = []
+    procs: list[subprocess.Popen] = []
     print(f"Starting leader instance on machine{leader_id} over SSH…")
     proc = run_remote_command(leader_machine, leader_run_cmd)
     procs.append(proc)
@@ -136,14 +113,14 @@ def main():
 
     # Start the frontend on the leader machine.
     print(f"Starting frontend on leader machine: http://{leader_machine['ip']}:{leader_machine['frontend_port']}")
-    leader_frontend_cmd = get_frontend_command(leader_machine)
+    leader_frontend_cmd = frontend_command(leader_machine)
     leader_frontend_proc = run_remote_command(leader_machine, leader_frontend_cmd)
     procs.append(leader_frontend_proc)
 
     for follower_id in follower_ids:
         follower_machine = machines[follower_id]
         print(f"Starting frontend on follower machine: http://{follower_machine['ip']}:{follower_machine['frontend_port']}")
-        follower_frontend_cmd = get_frontend_command(machines[follower_id])
+        follower_frontend_cmd = frontend_command(machines[follower_id])
         procs.append(run_remote_command(machines[follower_id], follower_frontend_cmd))
 
     print("Frontends started")
