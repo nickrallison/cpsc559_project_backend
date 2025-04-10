@@ -58,7 +58,7 @@ const Home = () => {
     axios
       .post(`${baseURL}/objects`, [taskObject])
       .then(() => {
-        setStatusMsg("Task added successfully!");
+        // setStatusMsg("Task added successfully!");
         setNewTask("");
         fetchTasks();
       })
