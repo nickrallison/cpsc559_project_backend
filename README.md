@@ -2,6 +2,15 @@
 
 ## Run Instructions
 
+### Prerequisites
+
+- Each node must:
+  - install go & yarn
+  - Have correct git credentials
+  - Have tailscale ssh enabled
+
+### Instructions
+
 Run the following command to start the server:
 ```sh
 go run ./src

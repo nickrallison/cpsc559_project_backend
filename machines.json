@@ -1,0 +1,16 @@
+{
+  "machines": [
+    {
+      "name": "machine1_port1",
+      "ip": "100.70.42.66",
+      "database": "~/.config/cpsc559/machine1_port1.db",
+      "username": "nick",
+      "repo_path": "~/.config/cpsc559",
+      "backend_port": "9000",
+      "http_port": "8000",
+      "frontend_port": "10000",
+      "role": "leader"
+    }
+  ],
+  "repo_url": "https://github.com/nickrallison/cpsc559_project_backend.git"
+}
