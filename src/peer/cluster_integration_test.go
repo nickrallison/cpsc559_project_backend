@@ -196,7 +196,7 @@ func TestSimultaneousLeaderElection(t *testing.T) {
 	nodeA.Start()
 	nodeB := peer.NewPeerServer(peer.Follower, "9205", "localhost", "localhost:9204", "localhost:9206", dbB, simulateDelay, avgDelay, stdevDelay)
 	nodeB.Start()
-	nodeC := peer.NewPeerServer(peer.Follower, "9206", "localhost", "localhost:9204", "", dbC, simulateDelay, avgDelay, stdevDelay)
+	nodeC := peer.NewPeerServer(peer.Follower, "9206", "localhost", "localhost:9204", "localhost:9205", dbC, simulateDelay, avgDelay, stdevDelay)
 	nodeC.Start()
 
 	// Register a cleanup function to stop servers and close DBs.
