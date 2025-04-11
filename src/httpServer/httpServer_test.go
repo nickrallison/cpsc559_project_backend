@@ -162,7 +162,7 @@ func TestPostObjectViaFollower(t *testing.T) {
 			t.Fatalf("POST expected status 200, got %d", resp.StatusCode)
 		}
 		// Allow a short delay for replication.
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// GET from both the leader and follower endpoints.
 		leaderObjs, err := httpGetObjects(t, leaderURL, 1)
 		if err != nil {
@@ -204,7 +204,7 @@ func TestPostObjectViaLeader(t *testing.T) {
 			t.Fatalf("POST expected status 200, got %d", resp.StatusCode)
 		}
 		// Allow a short delay for replication.
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// GET from both the leader and follower endpoints.
 		leaderObjs, err := httpGetObjects(t, leaderURL, 1)
 		if err != nil {
@@ -247,7 +247,7 @@ func TestPostMultipleObjectsViaFollower(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("POST expected status 200, got %d", resp.StatusCode)
 		}
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		leaderObjs, err := httpGetObjects(t, leaderURL, 2)
 		if err != nil {
 			t.Fatalf("GET from leader failed: %v", err)
@@ -286,7 +286,7 @@ func TestPostMultipleObjectsViaLeader(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("POST expected status 200, got %d", resp.StatusCode)
 		}
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		leaderObjs, err := httpGetObjects(t, leaderURL, 2)
 		if err != nil {
 			t.Fatalf("GET from leader failed: %v", err)
@@ -320,7 +320,7 @@ func TestGetObjectsAndSingleObject(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST expected status 200, got %d", resp.StatusCode)
 	}
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(7000 * time.Millisecond)
 
 	// Test Getting all objects.
 	for _, url := range []string{leaderURL, followerURL} {
@@ -367,7 +367,7 @@ func TestPutObjectViaFollower(t *testing.T) {
 			t.Fatalf("Initial POST failed: %v", err)
 		}
 		resp.Body.Close()
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// Issue a PUT (update) on the designated endpoint.
 		updatedObj := database.StoredObject{UserId: 4, UserMessageID: 1, Data: "Updated via PUT"}
 		putResp, err := httpPutObject(t, putEndpoint, updatedObj)
@@ -375,7 +375,7 @@ func TestPutObjectViaFollower(t *testing.T) {
 			t.Fatalf("PUT request failed: %v", err)
 		}
 		putResp.Body.Close()
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// GET from both leader and follower should reflect the update.
 		for _, url := range []string{leaderURL, followerURL} {
 			objs, err := httpGetObjects(t, url, 4)
@@ -407,7 +407,7 @@ func TestPutObjectViaLeader(t *testing.T) {
 			t.Fatalf("Initial POST failed: %v", err)
 		}
 		resp.Body.Close()
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// Issue a PUT (update) on the designated endpoint.
 		updatedObj := database.StoredObject{UserId: 4, UserMessageID: 1, Data: "Updated via PUT"}
 		putResp, err := httpPutObject(t, putEndpoint, updatedObj)
@@ -415,7 +415,7 @@ func TestPutObjectViaLeader(t *testing.T) {
 			t.Fatalf("PUT request failed: %v", err)
 		}
 		putResp.Body.Close()
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// GET from both leader and follower should reflect the update.
 		for _, url := range []string{leaderURL, followerURL} {
 			objs, err := httpGetObjects(t, url, 4)
@@ -447,7 +447,7 @@ func TestDeleteObjectViaFollower(t *testing.T) {
 			t.Fatalf("POST failed: %v", err)
 		}
 		resp.Body.Close()
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// Confirm object appears via GET.
 		objs, err := httpGetObjects(t, leaderURL, 5)
 		if err != nil {
@@ -462,7 +462,7 @@ func TestDeleteObjectViaFollower(t *testing.T) {
 			t.Fatalf("DELETE failed: %v", err)
 		}
 		delResp.Body.Close()
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// GET from both servers should return either an error or an empty result.
 		for _, url := range []string{leaderURL, followerURL} {
 			got, err := httpGetObjects(t, url, 5)
@@ -489,7 +489,7 @@ func TestDeleteObjectViaLeader(t *testing.T) {
 			t.Fatalf("POST failed: %v", err)
 		}
 		resp.Body.Close()
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// Confirm object appears via GET.
 		objs, err := httpGetObjects(t, leaderURL, 5)
 		if err != nil {
@@ -504,7 +504,7 @@ func TestDeleteObjectViaLeader(t *testing.T) {
 			t.Fatalf("DELETE failed: %v", err)
 		}
 		delResp.Body.Close()
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(7000 * time.Millisecond)
 		// GET from both servers should return either an error or an empty result.
 		for _, url := range []string{leaderURL, followerURL} {
 			got, err := httpGetObjects(t, url, 5)

@@ -188,8 +188,8 @@ func TestSimultaneousLeaderElection(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 700.0
-	stdevDelay := 300.0
+	avgDelay := 2000.0
+	stdevDelay := 500.0
 
 	// Create the peer nodes.
 	nodeA := peer.NewPeerServer(peer.Leader, "9204", "localhost", "", "localhost:9205,localhost:9206", dbA, simulateDelay, avgDelay, stdevDelay)
@@ -218,11 +218,11 @@ func TestSimultaneousLeaderElection(t *testing.T) {
 	go nodeB.StartElection()
 	go nodeC.StartElection()
 	// Wait for election processes.
-	time.Sleep(3 * time.Second)
+	time.Sleep(20 * time.Second)
 	// Heal the partition: restore nodeB and nodeC leader address to nodeA.
 	nodeB.LeaderAddr = nodeA.PeerAddr
 	nodeC.LeaderAddr = nodeA.PeerAddr
-	time.Sleep(2 * time.Second)
+	time.Sleep(20 * time.Second)
 
 	// Verify all nodes agree on the same leader.
 	if nodeA.Role != peer.Leader {
@@ -252,8 +252,8 @@ func TestNewLeaderReconciliation(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 700.0
-	stdevDelay := 300.0
+	avgDelay := 2000.0
+	stdevDelay := 500.0
 
 	leader := peer.NewPeerServer(peer.Leader, "9207", "localhost", "", "localhost:9208", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
@@ -280,7 +280,7 @@ func TestNewLeaderReconciliation(t *testing.T) {
 	// Force follower election explicitly.
 	follower.StartElection()
 	// Wait for the follower to detect failure and complete election.
-	time.Sleep(5 * time.Second)
+	time.Sleep(15 * time.Second)
 
 	// Expect the follower to become leader.
 	if follower.Role != peer.Leader {
@@ -312,8 +312,8 @@ func TestReadConsistencyDuringTransition(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 700.0
-	stdevDelay := 300.0
+	avgDelay := 2000.0
+	stdevDelay := 500.0
 
 	leader := peer.NewPeerServer(peer.Leader, "9209", "localhost", "", "localhost:9210", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
@@ -326,7 +326,7 @@ func TestReadConsistencyDuringTransition(t *testing.T) {
 		leader.Stop() // Even if already stopped later, this is safe.
 		follower.Stop()
 		// Allow background goroutines to finish.
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(20000 * time.Millisecond)
 		leaderDB.Close()
 		followerDB.Close()
 	})

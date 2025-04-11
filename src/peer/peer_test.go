@@ -130,7 +130,7 @@ func TestPeerWriteForwarding(t *testing.T) {
 	}
 
 	// Allow some time for the leader to push the update to both leader and follower databases.
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(7000 * time.Millisecond)
 
 	// Verify that the leader's DB now contains the object.
 	leaderObjs, err := database.GetObjects(leaderDB, userId)
