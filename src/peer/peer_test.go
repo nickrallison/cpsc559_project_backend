@@ -30,8 +30,8 @@ func TestPeerRead(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 1.0
-	stdevDelay := 0.3
+	avgDelay := 700.0
+	stdevDelay := 300.0
 
 	// Create and start a follower peer server.
 	ps := NewPeerServer(Follower, "9100", "localhost", "", "", db, simulateDelay, avgDelay, stdevDelay)
@@ -92,8 +92,8 @@ func TestPeerWriteForwarding(t *testing.T) {
 	})
 
 	simulateDelay := true
-	avgDelay := 1.0
-	stdevDelay := 0.3
+	avgDelay := 700.0
+	stdevDelay := 300.0
 
 	// Start the leader peer server on port 9200 with known follower "localhost:9201".
 	leader := NewPeerServer(Leader, "9200", "localhost", "", "localhost:9201", leaderDB, simulateDelay, avgDelay, stdevDelay)
@@ -130,7 +130,7 @@ func TestPeerWriteForwarding(t *testing.T) {
 	}
 
 	// Allow some time for the leader to push the update to both leader and follower databases.
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
 	// Verify that the leader's DB now contains the object.
 	leaderObjs, err := database.GetObjects(leaderDB, userId)

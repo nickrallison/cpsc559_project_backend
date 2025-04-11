@@ -68,8 +68,8 @@ type PeerServer struct {
 // It sets up the peer's role, network addresses, database handle,
 func NewPeerServer(role Role, port, addr string, leaderAddr, peers string, db *sql.DB, simulateDelay bool, avgDelayFloat float64, stdevDelayFloat float64) PeerServer {
 
-	avgDelay := time.Duration(avgDelayFloat) * time.Second
-	stdevDelay := time.Duration(stdevDelayFloat) * time.Second
+	avgDelay := time.Duration(avgDelayFloat) * time.Millisecond
+	stdevDelay := time.Duration(stdevDelayFloat) * time.Millisecond
 
 	ps := PeerServer{
 		Role: role,
