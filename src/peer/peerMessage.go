@@ -34,6 +34,10 @@ const (
     PrepareDeleteObject PeerMessageType = 120
     CommitDeleteObject  PeerMessageType = 121
     AbortDeleteObject   PeerMessageType = 122
+
+
+	CheckLeader   PeerMessageType = 200
+    CheckLeaderOK PeerMessageType = 201
 )
 
 // InternalData holds extra metadata.

@@ -249,6 +249,20 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 		bw.Flush() // Ensure all data is sent
 		log.Printf("Sent %d updates to %s", len(updates), pm.Metadata.Sender)
 
+	case CheckLeader:
+		// If this peer is the leader, return CheckLeaderOK. Otherwise, do nothing special.
+		response := PeerMessage{
+			Metadata: InternalData{Sender: ps.PeerAddr},
+		}
+		if ps.Role == Leader {
+			response.Type = CheckLeaderOK
+		}
+		enc := json.NewEncoder(conn)
+		if err := enc.Encode(response); err != nil {
+			log.Printf("[%s] Error sending CheckLeader reply: %v", ps.PeerAddr, err)
+		}
+		return
+	
 	default:
 		log.Printf("[%s] Unhandled peer message type: %d", ps.PeerAddr, pm.Type)
 	}
@@ -1165,6 +1179,15 @@ func (ps *PeerServer) StartElection() {
 	ps.inElection = true
 	defer func() { ps.inElection = false }()
 
+	for _, addr := range ps.knownPeers {
+        if ps.isPeerLeader(addr) {
+            log.Printf("[%s] Found a leader at %s, aborting election.", ps.PeerAddr, addr)
+			ps.LeaderAddr = addr
+        	ps.Role = Follower
+            return
+        }
+    }
+	
 	// Introduce a small random delay to avoid race conditions
 	jitter := time.Duration(rand.Intn(200)) * time.Millisecond
 	time.Sleep(jitter)
@@ -1267,6 +1290,44 @@ func (ps *PeerServer) StartElection() {
 		}
 	}
 }
+
+
+// isPeerLeader sends a CheckLeader message to the target peer.
+// Returns true if that peer responds with CheckLeaderOK
+func (ps *PeerServer) isPeerLeader(addr string) bool {
+    // Don’t check yourself
+    if addr == ps.PeerAddr {
+        return ps.Role == Leader
+    }
+
+    conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+    if err != nil {
+        return false
+    }
+    defer conn.Close()
+
+    // Send the CheckLeader request
+    checkMsg := PeerMessage{
+        Type: CheckLeader,
+        Metadata: InternalData{
+            Sender: ps.PeerAddr,
+        },
+    }
+    enc := json.NewEncoder(conn)
+    if err := enc.Encode(checkMsg); err != nil {
+        return false
+    }
+
+    // Wait for response
+    dec := json.NewDecoder(conn)
+    var resp PeerMessage
+    if err := dec.Decode(&resp); err != nil {
+        return false
+    }
+
+    return resp.Type == CheckLeaderOK
+}
+
 
 // becomeLeader transitions the node to the leader role
 // It processes all pending messages, synchronizes state if needed
