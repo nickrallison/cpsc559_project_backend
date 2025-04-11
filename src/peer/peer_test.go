@@ -29,8 +29,12 @@ func TestPeerRead(t *testing.T) {
 		t.Fatalf("InsertObject error: %v", err)
 	}
 
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
 	// Create and start a follower peer server.
-	ps := NewPeerServer(Follower, "9100", "localhost", "", "", db)
+	ps := NewPeerServer(Follower, "9100", "localhost", "", "", db, simulateDelay, avgDelay, stdevDelay)
 	ps.Start()
 	t.Cleanup(func() { ps.Stop() })
 
@@ -87,13 +91,17 @@ func TestPeerWriteForwarding(t *testing.T) {
 		followerDB.Close()
 	})
 
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
 	// Start the leader peer server on port 9200 with known follower "localhost:9201".
-	leader := NewPeerServer(Leader, "9200", "localhost", "", "localhost:9201", leaderDB)
+	leader := NewPeerServer(Leader, "9200", "localhost", "", "localhost:9201", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
 	t.Cleanup(func() { leader.Stop() })
 
 	// Start the follower peer server on port 9201 with its leader address set to "localhost:9200".
-	follower := NewPeerServer(Follower, "9201", "localhost", "localhost:9200", "", followerDB)
+	follower := NewPeerServer(Follower, "9201", "localhost", "localhost:9200", "", followerDB, simulateDelay, avgDelay, stdevDelay)
 	follower.Start()
 	t.Cleanup(func() { follower.Stop() })
 

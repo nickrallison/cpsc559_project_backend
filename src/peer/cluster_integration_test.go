@@ -2,9 +2,9 @@ package peer_test
 
 import (
 	"cpsc559/src/database"
-	"database/sql"
+	"cpsc559/src/httpServer"
 	"cpsc559/src/peer"
-	"cpsc559/src/httpServer" 
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -31,13 +31,16 @@ func TestHighWriteLoadReplication(t *testing.T) {
 		t.Fatalf("Follower DB init error: %v", err)
 	}
 
-	leader := peer.NewPeerServer(peer.Leader, "9200", "localhost", "", "localhost:9201", leaderDB)
-	leader.Start()
-	
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
 
-	follower := peer.NewPeerServer(peer.Follower, "9201", "localhost", "localhost:9200", "", followerDB)
+	leader := peer.NewPeerServer(peer.Leader, "9200", "localhost", "", "localhost:9201", leaderDB, simulateDelay, avgDelay, stdevDelay)
+	leader.Start()
+
+	follower := peer.NewPeerServer(peer.Follower, "9201", "localhost", "localhost:9200", "", followerDB, simulateDelay, avgDelay, stdevDelay)
 	follower.Start()
-	
+
 	// Register cleanup to stop servers and close DB connections.
 	t.Cleanup(func() {
 		leader.Stop()
@@ -118,12 +121,16 @@ func TestMissedUpdateRecovery(t *testing.T) {
 		t.Fatalf("Follower DB init error: %v", err)
 	}
 
-	leader := peer.NewPeerServer(peer.Leader, "9202", "localhost", "", "localhost:9203", leaderDB)
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
+	leader := peer.NewPeerServer(peer.Leader, "9202", "localhost", "", "localhost:9203", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
 
-	follower := peer.NewPeerServer(peer.Follower, "9203", "localhost", "localhost:9202", "", followerDB)
+	follower := peer.NewPeerServer(peer.Follower, "9203", "localhost", "localhost:9202", "", followerDB, simulateDelay, avgDelay, stdevDelay)
 	follower.Start()
-	
+
 	// Register cleanup: stop servers, wait briefly, then close databases.
 	t.Cleanup(func() {
 		leader.Stop()
@@ -159,7 +166,7 @@ func TestMissedUpdateRecovery(t *testing.T) {
 	}
 }
 
-// TestSimultaneousLeaderElection simulates a partition where multiple nodes start elections concurrently, 
+// TestSimultaneousLeaderElection simulates a partition where multiple nodes start elections concurrently,
 // then "heals" the partition to check that they eventually agree on a single leader.
 func TestSimultaneousLeaderElection(t *testing.T) {
 	tempDir := t.TempDir()
@@ -180,12 +187,16 @@ func TestSimultaneousLeaderElection(t *testing.T) {
 		t.Fatalf("Node C DB init error: %v", err)
 	}
 
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
 	// Create the peer nodes.
-	nodeA := peer.NewPeerServer(peer.Leader, "9204", "localhost", "", "localhost:9205,localhost:9206", dbA)
+	nodeA := peer.NewPeerServer(peer.Leader, "9204", "localhost", "", "localhost:9205,localhost:9206", dbA, simulateDelay, avgDelay, stdevDelay)
 	nodeA.Start()
-	nodeB := peer.NewPeerServer(peer.Follower, "9205", "localhost", "localhost:9204", "localhost:9206", dbB)
+	nodeB := peer.NewPeerServer(peer.Follower, "9205", "localhost", "localhost:9204", "localhost:9206", dbB, simulateDelay, avgDelay, stdevDelay)
 	nodeB.Start()
-	nodeC := peer.NewPeerServer(peer.Follower, "9206", "localhost", "localhost:9204", "", dbC)
+	nodeC := peer.NewPeerServer(peer.Follower, "9206", "localhost", "localhost:9204", "", dbC, simulateDelay, avgDelay, stdevDelay)
 	nodeC.Start()
 
 	// Register a cleanup function to stop servers and close DBs.
@@ -225,7 +236,6 @@ func TestSimultaneousLeaderElection(t *testing.T) {
 	}
 }
 
-
 // TestNewLeaderReconciliation simulates a leader that crashes before fully replicating an update,
 // so that the follower (upon detecting failure) becomes leader and must reconcile missing log entries.
 func TestNewLeaderReconciliation(t *testing.T) {
@@ -241,10 +251,14 @@ func TestNewLeaderReconciliation(t *testing.T) {
 		t.Fatalf("Follower DB init error: %v", err)
 	}
 
-	leader := peer.NewPeerServer(peer.Leader, "9207", "localhost", "", "localhost:9208", leaderDB)
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
+	leader := peer.NewPeerServer(peer.Leader, "9207", "localhost", "", "localhost:9208", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
 	// Do not defer leader.Stop() because we want to simulate a crash.
-	follower := peer.NewPeerServer(peer.Follower, "9208", "localhost", "localhost:9207", "", followerDB)
+	follower := peer.NewPeerServer(peer.Follower, "9208", "localhost", "localhost:9207", "", followerDB, simulateDelay, avgDelay, stdevDelay)
 	follower.Start()
 
 	// Register cleanup: stop the follower, wait briefly, then close DB connections.
@@ -262,7 +276,7 @@ func TestNewLeaderReconciliation(t *testing.T) {
 	leader.EnqueueMessage(msg)
 	// Simulate leader crash.
 	leader.Stop()
-	
+
 	// Force follower election explicitly.
 	follower.StartElection()
 	// Wait for the follower to detect failure and complete election.
@@ -282,7 +296,6 @@ func TestNewLeaderReconciliation(t *testing.T) {
 	}
 }
 
-
 // TestReadConsistencyDuringTransition verifies that reads (served from followers)
 // remain consistent even during leader transitions.
 func TestReadConsistencyDuringTransition(t *testing.T) {
@@ -298,15 +311,19 @@ func TestReadConsistencyDuringTransition(t *testing.T) {
 		t.Fatalf("Follower DB init error: %v", err)
 	}
 
-	leader := peer.NewPeerServer(peer.Leader, "9209", "localhost", "", "localhost:9210", leaderDB)
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
+	leader := peer.NewPeerServer(peer.Leader, "9209", "localhost", "", "localhost:9210", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
 
-	follower := peer.NewPeerServer(peer.Follower, "9210", "localhost", "localhost:9209", "", followerDB)
+	follower := peer.NewPeerServer(peer.Follower, "9210", "localhost", "localhost:9209", "", followerDB, simulateDelay, avgDelay, stdevDelay)
 	follower.Start()
 
 	// Register cleanup to ensure servers are stopped and databases closed.
 	t.Cleanup(func() {
-		leader.Stop()   // Even if already stopped later, this is safe.
+		leader.Stop() // Even if already stopped later, this is safe.
 		follower.Stop()
 		// Allow background goroutines to finish.
 		time.Sleep(100 * time.Millisecond)
@@ -345,7 +362,6 @@ func TestReadConsistencyDuringTransition(t *testing.T) {
 		t.Errorf("Expected consistent read after leader transition, got: %+v", objs)
 	}
 }
-
 
 // startDummyServer starts a TCP listener on the given port that accepts connections
 // but never sends an acknowledgment. It returns the listener and a channel that
@@ -402,14 +418,18 @@ func TestQuorumReplicationCaseMet(t *testing.T) {
 		followerDBs[i] = db
 	}
 
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
 	// Leader on port 9320.
-	leader := peer.NewPeerServer(peer.Leader, "9320", "localhost", "", "localhost:9321,localhost:9322,localhost:9323,localhost:9324", leaderDB)
+	leader := peer.NewPeerServer(peer.Leader, "9320", "localhost", "", "localhost:9321,localhost:9322,localhost:9323,localhost:9324", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
 	// Start four follower servers on ports 9321-9324.
 	followerPorts := []string{"9321", "9322", "9323", "9324"}
 	followers := make([]*peer.PeerServer, len(followerPorts))
 	for i, port := range followerPorts {
-		ps := peer.NewPeerServer(peer.Follower, port, "localhost", "localhost:9320", "", followerDBs[i])
+		ps := peer.NewPeerServer(peer.Follower, port, "localhost", "localhost:9320", "", followerDBs[i], simulateDelay, avgDelay, stdevDelay)
 		ps.Start()
 		followers[i] = &ps
 	}
@@ -476,8 +496,12 @@ func TestQuorumReplicationCaseNotMet(t *testing.T) {
 		t.Fatalf("Proper follower DB init error: %v", err)
 	}
 
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
 	// Leader on port 9330.
-	leader := peer.NewPeerServer(peer.Leader, "9330", "localhost", "", "localhost:9331,localhost:9332,localhost:9333,localhost:9334", leaderDB)
+	leader := peer.NewPeerServer(peer.Leader, "9330", "localhost", "", "localhost:9331,localhost:9332,localhost:9333,localhost:9334", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
 
 	// For ports 9331-9333, start dummy servers.
@@ -491,7 +515,7 @@ func TestQuorumReplicationCaseNotMet(t *testing.T) {
 	}
 
 	// For port 9334, start a proper follower.
-	properFollower := peer.NewPeerServer(peer.Follower, "9334", "localhost", "localhost:9330", "", properDB)
+	properFollower := peer.NewPeerServer(peer.Follower, "9334", "localhost", "localhost:9330", "", properDB, simulateDelay, avgDelay, stdevDelay)
 	properFollower.Start()
 
 	t.Cleanup(func() {
@@ -559,8 +583,12 @@ func TestQuorumReplicationCaseDelayedRecovery(t *testing.T) {
 		t.Fatalf("Recoverable follower DB init error: %v", err)
 	}
 
+	simulateDelay := true
+	avgDelay := 1.0
+	stdevDelay := 0.3
+
 	// Leader on port 9340.
-	leader := peer.NewPeerServer(peer.Leader, "9340", "localhost", "", "localhost:9341,localhost:9342,localhost:9343,localhost:9344", leaderDB)
+	leader := peer.NewPeerServer(peer.Leader, "9340", "localhost", "", "localhost:9341,localhost:9342,localhost:9343,localhost:9344", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
 
 	// For ports 9341 and 9342, start dummy servers.
@@ -573,7 +601,7 @@ func TestQuorumReplicationCaseDelayedRecovery(t *testing.T) {
 	}
 
 	// For port 9343, start a proper follower.
-	properFollower := peer.NewPeerServer(peer.Follower, "9343", "localhost", "localhost:9340", "", properDB)
+	properFollower := peer.NewPeerServer(peer.Follower, "9343", "localhost", "localhost:9340", "", properDB, simulateDelay, avgDelay, stdevDelay)
 	properFollower.Start()
 
 	// For port 9344, initially start a dummy server.
@@ -603,7 +631,7 @@ func TestQuorumReplicationCaseDelayedRecovery(t *testing.T) {
 		close(recoveryStop)
 		dummyListener9344.Close()
 		// Start the proper follower on port 9344.
-		recoveredFollower := peer.NewPeerServer(peer.Follower, "9344", "localhost", "localhost:9340", "", recoverableDB)
+		recoveredFollower := peer.NewPeerServer(peer.Follower, "9344", "localhost", "localhost:9340", "", recoverableDB, simulateDelay, avgDelay, stdevDelay)
 		recoveredFollower.Start()
 		// Keep it running for the duration of the test.
 	}()

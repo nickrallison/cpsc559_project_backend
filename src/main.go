@@ -56,7 +56,8 @@ func main() {
 		log.Fatalf("InitDB error: %v", err)
 	}
 
-	ps := peer.NewPeerServer(role, *peerPort, *localAddr, *leaderAddr, *peersStr, DB)
+	simulateDelay := false
+	ps := peer.NewPeerServer(role, *peerPort, *localAddr, *leaderAddr, *peersStr, DB, simulateDelay, 0.0, 0.0)
 	ps.Start()
 	defer ps.Stop()
 
