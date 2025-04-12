@@ -26,17 +26,28 @@ func InitDB(dbPath string) (error, *sql.DB) {
 		return fmt.Errorf("failed to ping db: %v", err), nil
 	}
 	createStmt := `
-        CREATE TABLE IF NOT EXISTS objects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            user_message_id INTEGER,
-            data TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-    `
+    CREATE TABLE IF NOT EXISTS objects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        user_message_id INTEGER,
+        data TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, user_message_id)
+    );
+`
 	if _, err = DB.ExecContext(ctx, createStmt); err != nil {
 		return fmt.Errorf("failed to create objects table: %v", err), nil
 	}
+	createStateStmt := `
+		CREATE TABLE IF NOT EXISTS state (
+			key TEXT PRIMARY KEY,
+			value INTEGER NOT NULL
+		);
+	`
+	if _, err = DB.ExecContext(ctx, createStateStmt); err != nil {
+		return fmt.Errorf("failed to create state table: %v", err), nil
+	}
+
 	return nil, DB
 }
 
@@ -103,4 +114,30 @@ func UpdateObjects(DB *sql.DB, userId int, user_message_id int, data string) (in
 		return 0, fmt.Errorf("failed to update object: %v", err)
 	}
 	return 1, nil
+}
+
+// SetState writes a key/value pair (for example, "lamport_clock") into the state table.
+func SetState(DB *sql.DB, key string, value int64) error {
+    ctx := context.Background()
+    // Use SQLite upsert to update if the key already exists.
+    _, err := DB.ExecContext(ctx, `
+        INSERT INTO state (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value
+    `, key, value)
+    return err
+}
+
+// GetState retrieves a value given a key from the state table.
+func GetState(DB *sql.DB, key string) (int64, error) {
+    ctx := context.Background()
+    var value int64
+    row := DB.QueryRowContext(ctx, "SELECT value FROM state WHERE key = ?", key)
+    err := row.Scan(&value)
+    if err != nil {
+        if err == sql.ErrNoRows {
+            return 0, nil
+        }
+        return 0, err
+    }
+    return value, nil
 }

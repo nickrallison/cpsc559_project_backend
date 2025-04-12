@@ -89,8 +89,23 @@ func NewPeerServer(role Role, port, addr string, leaderAddr, peers string, db *s
 	if peers != "" {
 		ps.knownPeers = strings.Split(peers, ",")
 	}
+	if role == Follower {
+		persistedClock, err := database.GetState(db, "lamport_clock")
+		if err != nil {
+			log.Printf("Error retrieving persisted lamport clock: %v", err)
+		} else {
+			ps.LamportClock = persistedClock
+			log.Printf("Loaded persisted lamport clock: %d", ps.LamportClock)
+		}
+	}
 	return ps
 }
+func (ps *PeerServer) updatePersistedClock() {
+    if err := database.SetState(ps.DB, "lamport_clock", ps.LamportClock); err != nil {
+         log.Printf("Failed to persist lamport clock: %v", err)
+    }
+}
+
 
 // Start opens a TCP listener on the peer's address and begins accepting connections
 // If the node is a follower, it also launches a goroutine to monitor the leader
@@ -1042,6 +1057,8 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
 
 	log.Printf("DEBUG: Synchronization complete - %d updates applied, new clock: %d",
 		updateCount, ps.LamportClock)
+	
+	ps.updatePersistedClock()
 	return nil
 }
 
@@ -1059,20 +1076,22 @@ func (ps *PeerServer) appendToUpdateLog(pm PeerMessage) {
 }
 
 func (ps *PeerServer) flushQueue() {
-	ps.queueLock.Lock()
-	defer ps.queueLock.Unlock()
-	var maxTs int64 = ps.LamportClock
-	// Process all pending messages in the queue.
-	for ps.msgQueue.Len() > 0 {
-		item := heap.Pop(&ps.msgQueue).(*MessageItem)
-		ps.applyMessage(item.message)
-		ps.appendToUpdateLog(item.message)
-		if item.message.Timestamp > maxTs {
-			maxTs = item.message.Timestamp
-		}
-	}
-	ps.LamportClock = maxTs
+    ps.queueLock.Lock()
+    defer ps.queueLock.Unlock()
+    var maxTs int64 = ps.LamportClock
+    // Process all pending messages in the queue.
+    for ps.msgQueue.Len() > 0 {
+        item := heap.Pop(&ps.msgQueue).(*MessageItem)
+        ps.applyMessage(item.message)
+        ps.appendToUpdateLog(item.message)
+        if item.message.Timestamp > maxTs {
+            maxTs = item.message.Timestamp
+        }
+    }
+    ps.LamportClock = maxTs
+    ps.updatePersistedClock() // persist new clock value
 }
+
 
 // getUpdatesSince returns all updates in the local log with timestamps greater than the given value
 func (ps *PeerServer) getUpdatesSince(since int64) ([]PeerMessage, error) {
