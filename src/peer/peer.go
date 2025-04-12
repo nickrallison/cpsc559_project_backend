@@ -942,125 +942,136 @@ func (ps *PeerServer) replicateWithRetry(pm PeerMessage) error {
 // SynchronizeWithLeader is called by a follower to ensure its local state is up-to-date with the leader
 // It connects to the leader, obtains the leader’s current Lamport clock and missing updates and enqueues them locally
 func (ps *PeerServer) SynchronizeWithLeader() error {
-	if ps.Role != Follower || ps.LeaderAddr == "" {
-		return nil
-	}
+    if ps.Role != Follower || ps.LeaderAddr == "" {
+        return nil
+    }
 
-	// --- First connection: Get the leader's state ---
-	conn, err := net.DialTimeout("tcp", ps.LeaderAddr, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to connect to leader: %v", err)
-	}
-	enc := json.NewEncoder(conn)
-	dec := json.NewDecoder(conn)
+    // --- First connection: Get the leader's state ---
+    conn, err := net.DialTimeout("tcp", ps.LeaderAddr, 5*time.Second)
+    if err != nil {
+        return fmt.Errorf("failed to connect to leader: %v", err)
+    }
+    enc := json.NewEncoder(conn)
+    dec := json.NewDecoder(conn)
 
-	// Request leader’s current lamport clock
-	if err := enc.Encode(PeerMessage{Type: GetLamport}); err != nil {
-		conn.Close()
-		return fmt.Errorf("failed to send GetLamport request: %v", err)
-	}
+    // Request leader’s current Lamport clock.
+    if err := enc.Encode(PeerMessage{Type: GetLamport}); err != nil {
+        conn.Close()
+        return fmt.Errorf("failed to send GetLamport request: %v", err)
+    }
 
-	leaderState := struct {
-		Lamport    int64 `json:"lamport"`
-		LastUpdate int64 `json:"last_update"`
-	}{}
+    leaderState := struct {
+        Lamport    int64 `json:"lamport"`
+        LastUpdate int64 `json:"last_update"`
+    }{}
+    if err := dec.Decode(&leaderState); err != nil {
+        conn.Close()
+        return fmt.Errorf("failed to decode leader state: %v", err)
+    }
+    conn.Close()
 
-	if err := dec.Decode(&leaderState); err != nil {
-		conn.Close()
-		return fmt.Errorf("failed to decode leader state: %v", err)
-	}
-	conn.Close() // Close the connection after handling the first request
+    // If already synchronized, nothing to do.
+    if ps.LamportClock >= leaderState.Lamport {
+        log.Printf("DEBUG: Already synchronized (local:%d leader:%d)", ps.LamportClock, leaderState.Lamport)
+        return nil
+    }
+    log.Printf("DEBUG: Starting synchronization (local:%d leader:%d)", ps.LamportClock, leaderState.Lamport)
 
-	// If already synchronized, nothing to do.
-	if ps.LamportClock >= leaderState.Lamport {
-		log.Printf("DEBUG: Already synchronized (local:%d leader:%d)",
-			ps.LamportClock, leaderState.Lamport)
-		return nil
-	}
+    // --- Second connection: Request missing updates ---
+    conn, err = net.DialTimeout("tcp", ps.LeaderAddr, 5*time.Second)
+    if err != nil {
+        return fmt.Errorf("failed to reconnect to leader: %v", err)
+    }
+    defer conn.Close()
+    enc = json.NewEncoder(conn)
+    dec = json.NewDecoder(conn)
 
-	log.Printf("DEBUG: Starting synchronization (local:%d leader:%d)",
-		ps.LamportClock, leaderState.Lamport)
+    // Request updates since (ps.LamportClock + 1)
+    syncReq := PeerMessage{
+        Type: GetUpdatesSince,
+        Metadata: InternalData{
+            Sender:    ps.PeerAddr,
+            StartTime: ps.LamportClock + 1,
+        },
+    }
+    if err := enc.Encode(syncReq); err != nil {
+        return fmt.Errorf("failed to send sync request: %v", err)
+    }
 
-	// --- Second connection: Get the missing updates ---
-	conn, err = net.DialTimeout("tcp", ps.LeaderAddr, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to reconnect to leader: %v", err)
-	}
-	defer conn.Close()
-	enc = json.NewEncoder(conn)
-	dec = json.NewDecoder(conn)
+    var updateCount int
+    batchStart := time.Now()
 
-	// Request updates from (local clock + 1)
-	syncReq := PeerMessage{
-		Type: GetUpdatesSince,
-		Metadata: InternalData{
-			Sender:    ps.PeerAddr,
-			StartTime: ps.LamportClock + 1,
-		},
-	}
-	if err := enc.Encode(syncReq); err != nil {
-		return fmt.Errorf("failed to send sync request: %v", err)
-	}
+    // Process incoming updates.
+    for {
+        var update PeerMessage
+        if err := dec.Decode(&update); err != nil {
+            if err == io.EOF || strings.Contains(err.Error(), "wsarecv: An established connection was aborted") {
+                break // end-of-stream, treat as completion
+            }
+            return fmt.Errorf("failed to decode update: %v", err)
+        }
 
-	// Process incoming updates with progress tracking
-	var (
-		updateCount   int
-		lastTimestamp int64
-		batchStart    = time.Now()
-	)
+        // If update timestamp is not newer than our current clock, skip it.
+        if update.Timestamp <= ps.LamportClock {
+            log.Printf("DEBUG: Skipping outdated update (ts:%d)", update.Timestamp)
+            continue
+        }
 
-	for {
-		var update PeerMessage
-		if err := dec.Decode(&update); err != nil {
-			if err == io.EOF || strings.Contains(err.Error(), "wsarecv: An established connection was aborted") {
-				break // treat as end-of-stream
-			}
-			return fmt.Errorf("failed to decode update: %v", err)
-		}
+        // Advance local Lamport clock regardless of duplicate status.
+        ps.LamportClock = update.Timestamp
 
-		// Validate update sequence
-		if update.Timestamp <= ps.LamportClock {
-			log.Printf("DEBUG: Skipping duplicate update (ts:%d)", update.Timestamp)
-			continue
-		}
+        // --- Duplicate checking ---
+        // For store operations: if an object exists with identical data, skip enqueuing.
+        switch update.Type {
+        case StoreObject, CommitStoreObject:
+            if obj, err := ps.GetObject(update.Data.UserId, update.Data.UserMessageID); err == nil {
+                if obj.Data == update.Data.Data {
+                    log.Printf("DEBUG: Skipping duplicate store update for user %d, msg %d (ts:%d)",
+                        update.Data.UserId, update.Data.UserMessageID, update.Timestamp)
+                    continue
+                }
+            }
+        case UpdateObject, CommitUpdateObject:
+            // For update: if the stored data already equals the update, skip.
+            if obj, err := ps.GetObject(update.Data.UserId, update.Data.UserMessageID); err == nil {
+                if obj.Data == update.Data.Data {
+                    log.Printf("DEBUG: Skipping duplicate update for user %d, msg %d (ts:%d)",
+                        update.Data.UserId, update.Data.UserMessageID, update.Timestamp)
+                    continue
+                }
+            }
+        case DeleteObject, CommitDeleteObject:
+            // For delete: if the object is already absent, skip.
+            if _, err := ps.GetObject(update.Data.UserId, update.Data.UserMessageID); err != nil {
+                log.Printf("DEBUG: Skipping delete update for user %d, msg %d (ts:%d) since object not present",
+                    update.Data.UserId, update.Data.UserMessageID, update.Timestamp)
+                continue
+            }
+        }
 
-		if update.Timestamp <= lastTimestamp {
-			log.Printf("WARN: Out-of-order update (current:%d received:%d)",
-				lastTimestamp, update.Timestamp)
-			continue
-		}
+        // Enqueue the update so the background queue processor will apply it.
+        ps.EnqueueMessage(update)
+        updateCount++
 
-		// Apply the update
-		ps.LamportClock = update.Timestamp
-		lastTimestamp = update.Timestamp
-		ps.EnqueueMessage(update)
-		updateCount++
+        if updateCount%100 == 0 || time.Since(batchStart) > time.Second {
+            log.Printf("DEBUG: Sync progress - %d updates enqueued, current ts:%d", updateCount, update.Timestamp)
+            batchStart = time.Now()
+        }
 
-		// Log progress every 100 updates or 1 second
-		if updateCount%100 == 0 || time.Since(batchStart) > time.Second {
-			log.Printf("DEBUG: Sync progress - %d updates, current ts:%d",
-				updateCount, update.Timestamp)
-			batchStart = time.Now()
-		}
+        if update.Timestamp >= leaderState.Lamport {
+            break
+        }
+    }
 
-		// Check if we've caught up
-		if update.Timestamp >= leaderState.Lamport {
-			break
-		}
-	}
+    // After enqueuing all missing updates, flush the queue so the pending updates get applied.
+    ps.flushQueue()
 
-	// Final synchronization check
-	if ps.LamportClock < leaderState.Lamport {
-		return fmt.Errorf("partial synchronization (local:%d leader:%d)",
-			ps.LamportClock, leaderState.Lamport)
-	}
-
-	log.Printf("DEBUG: Synchronization complete - %d updates applied, new clock: %d",
-		updateCount, ps.LamportClock)
-	
-	ps.updatePersistedClock()
-	return nil
+    // Persist the new Lamport clock.
+    ps.updatePersistedClock()
+    log.Printf("DEBUG: Synchronization complete - %d updates enqueued and processed, new clock: %d", updateCount, ps.LamportClock)
+    return nil
 }
+
 
 // appendToUpdateLog appends an update to the local log and prunes the log if it exceeds the maximum size
 func (ps *PeerServer) appendToUpdateLog(pm PeerMessage) {
@@ -1078,19 +1089,16 @@ func (ps *PeerServer) appendToUpdateLog(pm PeerMessage) {
 func (ps *PeerServer) flushQueue() {
     ps.queueLock.Lock()
     defer ps.queueLock.Unlock()
-    var maxTs int64 = ps.LamportClock
-    // Process all pending messages in the queue.
     for ps.msgQueue.Len() > 0 {
         item := heap.Pop(&ps.msgQueue).(*MessageItem)
         ps.applyMessage(item.message)
         ps.appendToUpdateLog(item.message)
-        if item.message.Timestamp > maxTs {
-            maxTs = item.message.Timestamp
+        if item.message.Timestamp > ps.LamportClock {
+            ps.LamportClock = item.message.Timestamp
         }
     }
-    ps.LamportClock = maxTs
-    ps.updatePersistedClock() // persist new clock value
 }
+
 
 
 // getUpdatesSince returns all updates in the local log with timestamps greater than the given value
@@ -1523,32 +1531,26 @@ func (ps *PeerServer) EnqueueMessage(pm PeerMessage) {
 // processQueue continuously processes messages from the priority queue in order
 // It uses the expected timestamp to ensure messages are applied sequentially
 func (ps *PeerServer) processQueue() {
-	var expectedTimestamp int64 = 1
-	for {
-		ps.queueLock.Lock()
-		if ps.msgQueue.Len() > 0 {
-			item := ps.msgQueue[0]
-			if item.message.Timestamp <= expectedTimestamp {
-				heap.Pop(&ps.msgQueue)
-				ps.queueLock.Unlock()
-
-				// Apply the message if it's exactly what we expect
-				if item.message.Timestamp == expectedTimestamp {
-					ps.applyMessage(item.message)
-					ps.appendToUpdateLog(item.message) // Log applied messages
-					expectedTimestamp++
-				} else {
-					// If it's older (shouldn't happen with proper Lamport clocks), apply but don't increment
-					ps.applyMessage(item.message)
-					ps.appendToUpdateLog(item.message)
-				}
-				continue
-			}
-		}
-		ps.queueLock.Unlock()
-		time.Sleep(10 * time.Millisecond)
-	}
+    // Process messages in order; don't enforce a rigid expected timestamp.
+    for {
+        ps.queueLock.Lock()
+        if ps.msgQueue.Len() > 0 {
+            // Pop the next message (the heap is sorted by message.Timestamp)
+            item := heap.Pop(&ps.msgQueue).(*MessageItem)
+            ps.queueLock.Unlock()
+            ps.applyMessage(item.message)
+            ps.appendToUpdateLog(item.message)
+            // Ensure our Lamport clock is at least as high as the message's timestamp.
+            if item.message.Timestamp > ps.LamportClock {
+                ps.LamportClock = item.message.Timestamp
+            }
+            continue
+        }
+        ps.queueLock.Unlock()
+        time.Sleep(10 * time.Millisecond)
+    }
 }
+
 
 // applyMessage applies the database operation based on the message type
 func (ps *PeerServer) applyMessage(pm PeerMessage) {
