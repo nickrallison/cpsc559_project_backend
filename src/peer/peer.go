@@ -1190,15 +1190,15 @@ func (ps *PeerServer) StartElection() {
 	ps.inElection = true
 	defer func() { ps.inElection = false }()
 
-	for _, addr := range ps.knownPeers {
-		if ps.isPeerLeader(addr) {
-			log.Printf("[%s] Found a leader at %s, aborting election.", ps.PeerAddr, addr)
-			ps.LeaderAddr = addr
-			ps.Role = Follower
-			ps.electionMutex.Unlock()
-			return
-		}
-	}
+	//for _, addr := range ps.knownPeers {
+	//	if ps.isPeerLeader(addr) {
+	//		log.Printf("[%s] Found a leader at %s, aborting election.", ps.PeerAddr, addr)
+	//		ps.LeaderAddr = addr
+	//		ps.Role = Follower
+	//		ps.electionMutex.Unlock()
+	//		return
+	//	}
+	//}
 
 	// Introduce a small random delay to avoid race conditions
 	jitter := time.Duration(rand.Intn(200)) * time.Millisecond
