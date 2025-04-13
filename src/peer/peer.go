@@ -46,13 +46,13 @@ func RoleFromString(s *string) Role {
 // It stores information about its role, addresses, local database,
 // message queues for updates, and metadata required for synchronization
 type PeerServer struct {
-	Role                 Role          // Leader or Follower
-	PeerAddr             string        // e.g. "localhost:9000"
-	LeaderAddr           string        // If follower, the leader’s address
-	DB                   *sql.DB       // Local database handle
-	knownPeers           []string      // For leader: a list of follower addresses
-	listener             net.Listener  // TCP listener for peer-to-peer communications
-	inElection           bool          // Flag to prevent concurrent elections
+	Role       Role         // Leader or Follower
+	PeerAddr   string       // e.g. "localhost:9000"
+	LeaderAddr string       // If follower, the leader’s address
+	DB         *sql.DB      // Local database handle
+	knownPeers []string     // For leader: a list of follower addresses
+	listener   net.Listener // TCP listener for peer-to-peer communications
+	//inElection           bool          // Flag to prevent concurrent elections
 	LamportClock         int64         // Logical clock (Lamport clock) for ordering updates
 	msgQueue             PriorityQueue // Priority queue for write updates (ordered by Lamport timestamp)
 	queueLock            sync.Mutex    // Mutex for concurrent access to the queue
@@ -199,10 +199,8 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 				log.Printf("[%s] Error sending election answer: %v", ps.PeerAddr, err)
 			}
 			// Start our own election if not already in progress
-			if !ps.inElection {
-				log.Printf("[%s] Starting own election due to incoming Election message.", ps.PeerAddr)
-				go ps.StartElection()
-			}
+			ps.StartElection()
+
 		} else {
 			// Respond even if lower priority
 			response := PeerMessage{
@@ -1187,8 +1185,8 @@ func (ps *PeerServer) StartElection() {
 		log.Printf("[%s] Election already in progress, skipping.", ps.PeerAddr)
 		return
 	}
-	ps.inElection = true
-	defer func() { ps.inElection = false }()
+	//ps.inElection = true
+	//defer func() { ps.inElection = false }()
 
 	for _, addr := range ps.knownPeers {
 		if ps.isPeerLeader(addr) {
@@ -1229,6 +1227,7 @@ func (ps *PeerServer) StartElection() {
 	log.Printf("[%s] Found %d reachable higher priority peer(s): %v", ps.PeerAddr, len(liveHigherPeers), liveHigherPeers)
 
 	if len(liveHigherPeers) == 0 {
+		log.Printf("[%s] No higher priority peers reachable, becoming leader...", ps.PeerAddr)
 		if err := ps.becomeLeader(); err != nil {
 			log.Printf("[%s] Failed to become leader: %v", ps.PeerAddr, err)
 		}
