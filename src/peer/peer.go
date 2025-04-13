@@ -58,6 +58,7 @@ type PeerServer struct {
 	queueLock            sync.Mutex    // Mutex for concurrent access to the queue
 	updateLog            []PeerMessage // Log of applied updates (used for synchronization)
 	updateLogMutex       sync.Mutex    // Mutex for concurrent access to the update log
+	electionMutex        sync.Mutex    // Mutex for concurrent access to election state
 	maxLogSize           int           // Maximum number of updates to keep in the log,
 	simulateNetworkDelay bool          // Flag to simulate network delay,
 	averageDelay         time.Duration // Average delay for simulating network latency
@@ -101,11 +102,10 @@ func NewPeerServer(role Role, port, addr string, leaderAddr, peers string, db *s
 	return ps
 }
 func (ps *PeerServer) updatePersistedClock() {
-    if err := database.SetState(ps.DB, "lamport_clock", ps.LamportClock); err != nil {
-         log.Printf("Failed to persist lamport clock: %v", err)
-    }
+	if err := database.SetState(ps.DB, "lamport_clock", ps.LamportClock); err != nil {
+		log.Printf("Failed to persist lamport clock: %v", err)
+	}
 }
-
 
 // Start opens a TCP listener on the peer's address and begins accepting connections
 // If the node is a follower, it also launches a goroutine to monitor the leader
@@ -149,7 +149,7 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 
 	// delay the connection to simulate network latency
 	if ps.simulateNetworkDelay {
-		delay := (ps.averageDelay + time.Duration(rand.NormFloat64()*float64(ps.stdevDelay)))
+		delay := ps.averageDelay + time.Duration(rand.NormFloat64()*float64(ps.stdevDelay))
 		if delay < 0 {
 			delay = 0
 		}
@@ -277,7 +277,7 @@ func (ps *PeerServer) handlePeerConnection(conn net.Conn) {
 			log.Printf("[%s] Error sending CheckLeader reply: %v", ps.PeerAddr, err)
 		}
 		return
-	
+
 	default:
 		log.Printf("[%s] Unhandled peer message type: %d", ps.PeerAddr, pm.Type)
 	}
@@ -645,7 +645,7 @@ func (ps *PeerServer) pushUpdateToPeer(addr string, pm PeerMessage) error {
 // It forwards the request to the leader and returns the leader's response
 func (ps *PeerServer) ForwardRequestToLeader(pm PeerMessage) (map[string]interface{}, error) {
 	pm.Metadata.Sender = ps.PeerAddr
-	log.Printf("DEBUG: Forwarding request to leader: type %d, timestamp %d", pm.Type, pm.Timestamp)
+	log.Printf("DEBUG: Forwarding request to leader (%s): type %d, timestamp %d", ps.LeaderAddr, pm.Type, pm.Timestamp)
 	if ps.LeaderAddr == "" {
 		return nil, fmt.Errorf("leader address is not set")
 	}
@@ -946,10 +946,10 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
 	if ps.Role != Follower || ps.LeaderAddr == "" {
 		return nil
 	}
- 
+
 	// Save the follower's current (old) clock.
 	oldClock := ps.LamportClock
- 
+
 	// --- First connection: Get the leader's state ---
 	conn, err := net.DialTimeout("tcp", ps.LeaderAddr, 5*time.Second)
 	if err != nil {
@@ -957,7 +957,7 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
 	}
 	enc := json.NewEncoder(conn)
 	dec := json.NewDecoder(conn)
- 
+
 	// Request the leader’s current Lamport clock.
 	if err := enc.Encode(PeerMessage{Type: GetLamport}); err != nil {
 		conn.Close()
@@ -972,14 +972,14 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
 		return fmt.Errorf("failed to decode leader state: %v", err)
 	}
 	conn.Close()
- 
+
 	// If already caught up, nothing needs to be done.
 	if oldClock >= leaderState.Lamport {
 		log.Printf("DEBUG: Already synchronized (old clock: %d, leader: %d)", oldClock, leaderState.Lamport)
 		return nil
 	}
 	log.Printf("DEBUG: Starting synchronization (old clock: %d, leader: %d)", oldClock, leaderState.Lamport)
- 
+
 	// --- Second connection: Request missing updates ---
 	conn, err = net.DialTimeout("tcp", ps.LeaderAddr, 5*time.Second)
 	if err != nil {
@@ -988,7 +988,7 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
 	defer conn.Close()
 	enc = json.NewEncoder(conn)
 	dec = json.NewDecoder(conn)
- 
+
 	// Request updates starting from oldClock + 1.
 	syncReq := PeerMessage{
 		Type: GetUpdatesSince,
@@ -1000,10 +1000,10 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
 	if err := enc.Encode(syncReq); err != nil {
 		return fmt.Errorf("failed to send sync request: %v", err)
 	}
- 
+
 	// Count the number of new (non-duplicate) updates.
 	var newCount int
- 
+
 	// Process the updates from the leader.
 	// Instead of breaking when we see an update with Timestamp equal to leaderState.Lamport,
 	// we let the loop run until it naturally ends (e.g., when we hit EOF).
@@ -1015,12 +1015,12 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
 			}
 			return fmt.Errorf("failed to decode update: %v", err)
 		}
- 
+
 		// Process only updates with timestamps in the range (oldClock, leaderState.Lamport].
 		if update.Timestamp <= oldClock || update.Timestamp > leaderState.Lamport {
 			continue
 		}
- 
+
 		// Check for duplicates in the local database.
 		duplicate := false
 		switch update.Type {
@@ -1035,29 +1035,28 @@ func (ps *PeerServer) SynchronizeWithLeader() error {
 			}
 		// For delete operations, if the object is not present, assume it has already been removed.
 		case DeleteObject, CommitDeleteObject:
-		      // Always process deletion updates, ensuring that even if the object is absent, the deletion event is applied.
-		       duplicate = false
+			// Always process deletion updates, ensuring that even if the object is absent, the deletion event is applied.
+			duplicate = false
 		}
- 
+
 		// Enqueue the update only if it is not a duplicate.
 		if !duplicate {
 			ps.EnqueueMessage(update)
 			newCount++
 		}
 	}
- 
+
 	// Explicitly update the local Lamport clock to the leader's value.
 	ps.LamportClock = leaderState.Lamport
 	ps.updatePersistedClock()
- 
+
 	log.Printf("DEBUG: Synchronization complete - %d new updates enqueued (old clock: %d, new clock: %d)", newCount, oldClock, ps.LamportClock)
- 
+
 	// Process all enqueued updates in order.
 	ps.flushQueue()
- 
+
 	return nil
 }
-
 
 // appendToUpdateLog appends an update to the local log and prunes the log if it exceeds the maximum size
 func (ps *PeerServer) appendToUpdateLog(pm PeerMessage) {
@@ -1073,19 +1072,17 @@ func (ps *PeerServer) appendToUpdateLog(pm PeerMessage) {
 }
 
 func (ps *PeerServer) flushQueue() {
-    ps.queueLock.Lock()
-    defer ps.queueLock.Unlock()
-    for ps.msgQueue.Len() > 0 {
-        item := heap.Pop(&ps.msgQueue).(*MessageItem)
-        ps.applyMessage(item.message)
-        ps.appendToUpdateLog(item.message)
-        if item.message.Timestamp > ps.LamportClock {
-            ps.LamportClock = item.message.Timestamp
-        }
-    }
+	ps.queueLock.Lock()
+	defer ps.queueLock.Unlock()
+	for ps.msgQueue.Len() > 0 {
+		item := heap.Pop(&ps.msgQueue).(*MessageItem)
+		ps.applyMessage(item.message)
+		ps.appendToUpdateLog(item.message)
+		if item.message.Timestamp > ps.LamportClock {
+			ps.LamportClock = item.message.Timestamp
+		}
+	}
 }
-
-
 
 // getUpdatesSince returns all updates in the local log with timestamps greater than the given value
 func (ps *PeerServer) getUpdatesSince(since int64) ([]PeerMessage, error) {
@@ -1185,7 +1182,8 @@ func (ps *PeerServer) monitorLeader() {
 // It contacts higher priority peers (based on lexicographical ordering of addresses)
 // If none respond, it calls becomeLeader()
 func (ps *PeerServer) StartElection() {
-	if ps.inElection {
+	lockResult := ps.electionMutex.TryLock()
+	if !lockResult {
 		log.Printf("[%s] Election already in progress, skipping.", ps.PeerAddr)
 		return
 	}
@@ -1193,14 +1191,15 @@ func (ps *PeerServer) StartElection() {
 	defer func() { ps.inElection = false }()
 
 	for _, addr := range ps.knownPeers {
-        if ps.isPeerLeader(addr) {
-            log.Printf("[%s] Found a leader at %s, aborting election.", ps.PeerAddr, addr)
+		if ps.isPeerLeader(addr) {
+			log.Printf("[%s] Found a leader at %s, aborting election.", ps.PeerAddr, addr)
 			ps.LeaderAddr = addr
-        	ps.Role = Follower
-            return
-        }
-    }
-	
+			ps.Role = Follower
+			ps.electionMutex.Unlock()
+			return
+		}
+	}
+
 	// Introduce a small random delay to avoid race conditions
 	jitter := time.Duration(rand.Intn(200)) * time.Millisecond
 	time.Sleep(jitter)
@@ -1233,6 +1232,7 @@ func (ps *PeerServer) StartElection() {
 		if err := ps.becomeLeader(); err != nil {
 			log.Printf("[%s] Failed to become leader: %v", ps.PeerAddr, err)
 		}
+		ps.electionMutex.Unlock()
 		return
 	}
 
@@ -1302,45 +1302,44 @@ func (ps *PeerServer) StartElection() {
 			log.Printf("[%s] Failed to become leader: %v", ps.PeerAddr, err)
 		}
 	}
+	ps.electionMutex.Unlock()
 }
-
 
 // isPeerLeader sends a CheckLeader message to the target peer.
 // Returns true if that peer responds with CheckLeaderOK
 func (ps *PeerServer) isPeerLeader(addr string) bool {
-    // Don’t check yourself
-    if addr == ps.PeerAddr {
-        return ps.Role == Leader
-    }
+	// Don’t check yourself
+	if addr == ps.PeerAddr {
+		return ps.Role == Leader
+	}
 
-    conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
-    if err != nil {
-        return false
-    }
-    defer conn.Close()
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
 
-    // Send the CheckLeader request
-    checkMsg := PeerMessage{
-        Type: CheckLeader,
-        Metadata: InternalData{
-            Sender: ps.PeerAddr,
-        },
-    }
-    enc := json.NewEncoder(conn)
-    if err := enc.Encode(checkMsg); err != nil {
-        return false
-    }
+	// Send the CheckLeader request
+	checkMsg := PeerMessage{
+		Type: CheckLeader,
+		Metadata: InternalData{
+			Sender: ps.PeerAddr,
+		},
+	}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(checkMsg); err != nil {
+		return false
+	}
 
-    // Wait for response
-    dec := json.NewDecoder(conn)
-    var resp PeerMessage
-    if err := dec.Decode(&resp); err != nil {
-        return false
-    }
+	// Wait for response
+	dec := json.NewDecoder(conn)
+	var resp PeerMessage
+	if err := dec.Decode(&resp); err != nil {
+		return false
+	}
 
-    return resp.Type == CheckLeaderOK
+	return resp.Type == CheckLeaderOK
 }
-
 
 // becomeLeader transitions the node to the leader role
 // It processes all pending messages, synchronizes state if needed
@@ -1517,26 +1516,25 @@ func (ps *PeerServer) EnqueueMessage(pm PeerMessage) {
 // processQueue continuously processes messages from the priority queue in order
 // It uses the expected timestamp to ensure messages are applied sequentially
 func (ps *PeerServer) processQueue() {
-    // Process messages in order; don't enforce a rigid expected timestamp.
-    for {
-        ps.queueLock.Lock()
-        if ps.msgQueue.Len() > 0 {
-            // Pop the next message (the heap is sorted by message.Timestamp)
-            item := heap.Pop(&ps.msgQueue).(*MessageItem)
-            ps.queueLock.Unlock()
-            ps.applyMessage(item.message)
-            ps.appendToUpdateLog(item.message)
-            // Ensure our Lamport clock is at least as high as the message's timestamp.
-            if item.message.Timestamp > ps.LamportClock {
-                ps.LamportClock = item.message.Timestamp
-            }
-            continue
-        }
-        ps.queueLock.Unlock()
-        time.Sleep(10 * time.Millisecond)
-    }
+	// Process messages in order; don't enforce a rigid expected timestamp.
+	for {
+		ps.queueLock.Lock()
+		if ps.msgQueue.Len() > 0 {
+			// Pop the next message (the heap is sorted by message.Timestamp)
+			item := heap.Pop(&ps.msgQueue).(*MessageItem)
+			ps.queueLock.Unlock()
+			ps.applyMessage(item.message)
+			ps.appendToUpdateLog(item.message)
+			// Ensure our Lamport clock is at least as high as the message's timestamp.
+			if item.message.Timestamp > ps.LamportClock {
+				ps.LamportClock = item.message.Timestamp
+			}
+			continue
+		}
+		ps.queueLock.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
 }
-
 
 // applyMessage applies the database operation based on the message type
 func (ps *PeerServer) applyMessage(pm PeerMessage) {
