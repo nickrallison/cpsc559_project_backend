@@ -51,6 +51,10 @@ func main() {
 
 	var err error
 	var DB *sql.DB
+	err = database.ClearDB(*dbPath)
+	if err != nil {
+		log.Printf("ClearDB error: %v", err)
+	}
 	err, DB = database.InitDB(*dbPath)
 	if err != nil {
 		log.Fatalf("InitDB error: %v", err)
