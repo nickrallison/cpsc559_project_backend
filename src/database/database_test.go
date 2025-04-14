@@ -69,23 +69,25 @@ func TestMultipleObjects(t *testing.T) {
 	}
 
 	userId1 := 1
-	userMessageId1 := 1
 	userId2 := 2
-	userMessageId2 := 1
+	objIndex := 1
 	objectsUser1 := []string{"First object", "Second object", "Third object"}
 	objectsUser2 := []string{"User2 only object"}
 
 	for _, msg := range objectsUser1 {
-		if _, err := InsertObject(DB, userId1, userMessageId1, msg); err != nil {
+		if _, err := InsertObject(DB, userId1, objIndex, msg); err != nil {
 			t.Fatalf("failed to insert object for user 1: %v", err)
 		}
+		objIndex++
 	}
 	for _, msg := range objectsUser2 {
-		if _, err := InsertObject(DB, userId2, userMessageId2, msg); err != nil {
+		if _, err := InsertObject(DB, userId2, objIndex, msg); err != nil {
 			t.Fatalf("failed to insert object for user 2: %v", err)
 		}
+		objIndex++
 	}
 
+	objIndex = 1
 	msgs, err := GetObjects(DB, userId1)
 	if err != nil {
 		t.Fatalf("GetObjects for user 1 failed: %v", err)
