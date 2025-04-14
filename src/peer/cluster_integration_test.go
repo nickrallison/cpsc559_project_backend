@@ -32,8 +32,8 @@ func TestHighWriteLoadReplication(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 700.0
-	stdevDelay := 300.0
+	avgDelay := 200.0
+	stdevDelay := 25.0
 
 	leader := peer.NewPeerServer(peer.Leader, "9200", "localhost", "", "localhost:9201", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
@@ -122,8 +122,8 @@ func TestMissedUpdateRecovery(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 700.0
-	stdevDelay := 300.0
+	avgDelay := 200.0
+	stdevDelay := 25.0
 
 	leader := peer.NewPeerServer(peer.Leader, "9202", "localhost", "", "localhost:9203", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
@@ -188,8 +188,8 @@ func TestSimultaneousLeaderElection(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 2000.0
-	stdevDelay := 500.0
+	avgDelay := 200.0
+	stdevDelay := 25.0
 
 	// Create the peer nodes.
 	nodeA := peer.NewPeerServer(peer.Leader, "9304", "localhost", "", "localhost:9305,localhost:9306", dbA, simulateDelay, avgDelay, stdevDelay)
@@ -252,8 +252,8 @@ func TestNewLeaderReconciliation(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 2000.0
-	stdevDelay := 500.0
+	avgDelay := 200.0
+	stdevDelay := 25.0
 
 	leader := peer.NewPeerServer(peer.Leader, "9207", "localhost", "", "localhost:9208", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
@@ -312,8 +312,8 @@ func TestReadConsistencyDuringTransition(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 2000.0
-	stdevDelay := 500.0
+	avgDelay := 200.0
+	stdevDelay := 25.0
 
 	leader := peer.NewPeerServer(peer.Leader, "9209", "localhost", "", "localhost:9210", leaderDB, simulateDelay, avgDelay, stdevDelay)
 	leader.Start()
@@ -419,8 +419,8 @@ func TestQuorumReplicationCaseMet(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 700.0
-	stdevDelay := 300.0
+	avgDelay := 200.0
+	stdevDelay := 25.0
 
 	// Leader on port 9320.
 	leader := peer.NewPeerServer(peer.Leader, "9320", "localhost", "", "localhost:9321,localhost:9322,localhost:9323,localhost:9324", leaderDB, simulateDelay, avgDelay, stdevDelay)
@@ -497,8 +497,8 @@ func TestQuorumReplicationCaseNotMet(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 700.0
-	stdevDelay := 300.0
+	avgDelay := 200.0
+	stdevDelay := 25.0
 
 	// Leader on port 9330.
 	leader := peer.NewPeerServer(peer.Leader, "9330", "localhost", "", "localhost:9331,localhost:9332,localhost:9333,localhost:9334", leaderDB, simulateDelay, avgDelay, stdevDelay)
@@ -584,8 +584,8 @@ func TestQuorumReplicationCaseDelayedRecovery(t *testing.T) {
 	}
 
 	simulateDelay := true
-	avgDelay := 700.0
-	stdevDelay := 300.0
+	avgDelay := 200.0
+	stdevDelay := 25.0
 
 	// Leader on port 9340.
 	leader := peer.NewPeerServer(peer.Leader, "9340", "localhost", "", "localhost:9341,localhost:9342,localhost:9343,localhost:9344", leaderDB, simulateDelay, avgDelay, stdevDelay)
